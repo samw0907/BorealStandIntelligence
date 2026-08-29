@@ -109,14 +109,18 @@ MS-NFI 2023 coverage. This follows the standing rule from the infrastructure not
 |---|---|---|
 | FETCH | Forest use declarations (metsänkäyttöilmoitus) — geometry, felling type, dates | Metsäkeskus WFS `v1/forestusedeclaration/ows` |
 | FETCH | Stand polygons, forest mask | Metsäkeskus WFS `v2/stand`, `v2/forestmask` |
-| DERIVE ONLY | Sentinel-2 L2A composites and change surfaces | CDSE / GEE |
-| DERIVE ONLY | Sentinel-1 GRD backscatter change | CDSE |
+| DERIVE ONLY | Sentinel-2 L2A composites and change surfaces | AWS Earth Search (Collection 1) |
+
+**Sentinel-1 dropped (2026-08-29).** SAR is not a core Finnish operational
+forestry method — the operational products this project rebuilds are optical +
+ALS. Its only strong justification here (cloud gaps) does not apply: the SE
+Finland summer S2 composites are 99.8% complete with ~11 clear looks per pixel.
+Adding a SAR log-ratio would make the project less faithful to "what Metsa does"
+and add domain surface area with marginal gain. `sentinel1.enabled: false`.
 
 ### Calculations
 - Seasonal median composites, SCL cloud masking (Baltic/Prey Lang pattern)
 - dNBR and ΔNDMI differencing between pre and post windows
-- Sentinel-1 log-ratio per polarisation, combined as
-  `sqrt(ΔVV² + ΔVH²)` — the vector-sum method from SAR_METHODOLOGY_FUNDAMENTALS.md
 - Zonal statistics per declaration polygon (GeoPandas + rasterstats),
   pixel-centroid mode, no_data excluded from the validation denominator
 - Threshold calibrated by **F1 sweep against declarations**, not assumed —

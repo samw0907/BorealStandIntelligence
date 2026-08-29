@@ -52,9 +52,9 @@ Direct paraphrase of their description:
 
 STRATEGIC IMPLICATION: the open-data half is fully reproducible. The closed-loop
 calibration against measured harvester outturn and sawmill log measurement is
-their genuine moat. This is structurally the same honesty framing that worked for
-ICEYE (open Sentinel-1 at 20 m vs commercial sub-metre): rebuild the open half,
-name the missing half precisely, explain why it matters.
+their genuine moat. The honest framing for this project: rebuild the open half,
+name the missing half precisely, explain why it matters. This project targets
+Metsa Group only.
 
 ### B2. Satellite + AI damage maps in Metsäverkko
 

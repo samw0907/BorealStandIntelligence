@@ -89,7 +89,7 @@ README that the module originated in Repo 1.
 |---|---|
 | Repo creation | this file |
 | TASK 00 discovery | `DATA_SOURCES.md`, `TASK_00_DISCOVERY.md` |
-| Module B | `PROJECT_1` (B section), `SAR_METHODOLOGY_FUNDAMENTALS.md`, this file |
+| Module B | `PROJECT_1` (B section), `DATA_SOURCES.md`, this file |
 | Module A | `PROJECT_1` (A section), `RESEARCH` Part G2 |
 | Module C | `PROJECT_1` (C section), `RESEARCH` Part E2 |
 | Module D | `PROJECT_2` (D section), `RESEARCH` Parts G1 and E1 |

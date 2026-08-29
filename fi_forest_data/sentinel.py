@@ -4,7 +4,11 @@
 Sentinel-2 L2A from AWS Earth Search, collection sentinel-2-c1-l2a (ESA
 Collection 1 - one harmonised processing baseline across the whole archive, so
 the DN->reflectance correction is a single rule for every scene). Public COGs,
-no credentials. Sentinel-1 GRD comes later (Module B4).
+no credentials.
+
+Sentinel-1 was dropped from Module B (2026-08-29): SAR is not a core Finnish
+operational forestry method and the SE Finland summer S2 composites have no cloud
+gaps for it to fill. See docs/PROJECT_1_BOREAL_STAND_INTELLIGENCE.md, Module B.
 
 fetch_s2_composite builds a per-pixel median reflectance composite over a date
 window: STAC search -> SCL cloud mask -> DN * scale + offset -> median of the

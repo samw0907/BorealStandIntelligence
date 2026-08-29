@@ -24,9 +24,9 @@ sentinel2:
   indices: [ndvi, evi, nbr, ndre, ndmi]
 
 sentinel1:
-  enabled: true
-  orbit: ascending
-  polarisations: [VV, VH]
+  enabled: false                     # dropped 2026-08-29: SAR is not a core Finnish
+  orbit: ascending                   # operational forestry method and S2 coverage here
+  polarisations: [VV, VH]            # is 99.8% complete, so it adds surface area for no gain
 
 module_b_harvest_detection:
   change_metric: dnbr                 # dnbr | dndmi | s1_logratio | combined
