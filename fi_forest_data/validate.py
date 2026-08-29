@@ -74,7 +74,14 @@ def validate_pipeline_config(cfg: dict, base_dir: Path | None = None) -> list[st
     if not isinstance(s2, dict):
         problems.append("top level: missing 'sentinel2' block")
     else:
-        _in(problems, s2, "source", {"cdse", "gee"}, "sentinel2")
+        _in(problems, s2, "source", {"aws_earthsearch", "cdse", "gee"}, "sentinel2")
+        if s2.get("source") == "aws_earthsearch":
+            for k in ("stac_url", "collection"):
+                if not s2.get(k):
+                    problems.append(f"sentinel2.{k}: required when source is aws_earthsearch")
+            _num(problems, s2, "reflectance_scale", 0, None, "sentinel2")
+            if "reflectance_offset" not in s2:
+                problems.append("sentinel2: missing 'reflectance_offset'")
         cw = s2.get("composite_windows", {})
         _window(problems, cw.get("pre"), "sentinel2.composite_windows.pre")
         _window(problems, cw.get("post"), "sentinel2.composite_windows.post")

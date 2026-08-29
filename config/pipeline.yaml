@@ -6,14 +6,21 @@
 aoi: aoi_southeast.yaml   # resolved relative to this config file's directory
 
 sentinel2:
-  source: cdse                        # cdse | gee
+  source: aws_earthsearch             # aws_earthsearch | cdse | gee
+  stac_url: https://earth-search.aws.element84.com/v1
+  collection: sentinel-2-c1-l2a       # ESA Collection 1: single harmonised baseline, no offset split
   composite_windows:
     pre:  {start: "2021-06-01", end: "2021-08-31"}
     post: {start: "2024-06-01", end: "2024-08-31"}
   max_cloud_scene_pct: 40
   cloud_mask: scl                     # SCL classes to exclude listed below
-  scl_exclude: [3, 8, 9, 10, 11]
-  min_scenes_per_composite: 5
+  scl_exclude: [3, 8, 9, 10, 11]     # cloud shadow, cloud med/high prob, thin cirrus
+  min_scenes_per_composite: 5        # per-window scene-count gate
+  min_clear_obs_per_pixel: 3         # pixels with fewer clear looks -> nodata
+  working_resolution_m: 20           # SWIR-native; no upsampling for change metrics
+  bands: [blue, green, red, rededge1, nir, swir16, swir22]
+  reflectance_scale: 0.0001          # DN -> reflectance = DN * scale + offset (read per asset, asserted)
+  reflectance_offset: -0.1
   indices: [ndvi, evi, nbr, ndre, ndmi]
 
 sentinel1:
