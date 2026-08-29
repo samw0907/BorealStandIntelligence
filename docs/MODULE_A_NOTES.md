@@ -145,6 +145,22 @@ Recorded so the design reasoning is traceable later.
      operational stack (MS-NFI has always used satellite optical; ALS is the
      newer half). ALS-only stays reported as the ablation.
 
+7. **Model domain: established stands only** (A5b, 2026-08-29, agreed with Sam).
+   `stand_model_frame` drops development classes A0 (open), T1 and T2 (seedling)
+   via `module_a_stand_estimation.exclude_dev_classes` in the config. ~686 of
+   4,166 subset stands, and with them all but ~3 of the datasource-5 stands.
+   - *Why:* a regeneration / seedling stand has ~0 growing stock, so estimating
+     its volume is not a real task; it is *identified* (Module B, the dev class
+     itself, or `h_p90 < ~5 m`) and gated out, exactly as an operational offer
+     tool treats bare ground. Kept in, they held the apparent volume R2 down
+     from ~0.89 to ~0.75 and injected a +40 m3/ha low-end bias that
+     misrepresented performance on the stands the model is actually for.
+   - *Alternatives rejected:* keep them with a caveat (misleading headline
+     numbers); a bare/seedling pre-classifier feeding the estimator (more
+     machinery, same result as a dev-class gate).
+   - *Effect on the reference set:* now effectively datasource-4 only. The
+     datasource-4 vs -5 comparison from A5b is kept in the notes as the evidence.
+
 ---
 
 ## 3. Method
@@ -229,16 +245,18 @@ Output: `data/raw/nls/chm_cell_stats_e_ruokolahti.csv`.
 to stand level (per-stand median of each metric over cells whose centre falls in
 the stand) and attaches the stand attributes. Reference stands only:
 `treestanddatasource` in {4 interpreted, 5 laser}, `maingroup` 1, non-null
-volume; stands with < 8 covered cells dropped. Adds `soil_main_type`
-(mineral/peat, split at soiltype 60) and a spatial-block id for blocked CV.
+volume, development class not in `exclude_dev_classes` (A0/T1/T2 - decision
+2.6-7, added at A5b); stands with < 8 covered cells dropped. Adds
+`soil_main_type` (mineral/peat, split at soiltype 60) and a spatial-block id.
 
-**4,166 stands** (3,761 datasource 4, 405 datasource 5), median 32 covered cells.
-Soil: 3,571 mineral / 595 peat. Targets: `vol_total`, `vol_pine/spruce/other`
-(= total x the stand species proportions - the stand layer has no per-species
-volume column), `basalarea`, `meanheight`, `meandiameter`, `meanage`,
-`sawlogvolume`, `pulpwoodvolume`, `stemcount`, `volumegrowth`. Raw Pearson r of
-`h_p90` with vol_total 0.80, meanheight 0.83, meanage 0.80 - the ALS signal is
-clearly present. Output: `data/raw/nls/stand_model_frame_e_ruokolahti.csv`.
+As first built (no dev-class gate) the frame was **4,166 stands** (3,761
+datasource 4, 405 datasource 5). With the A5b gate it is **3,480 stands**,
+effectively datasource-4 only (3 datasource-5 survive). Targets: `vol_total`,
+`vol_pine/spruce/other` (= total x the stand species proportions - the stand
+layer has no per-species volume column), `basalarea`, `meanheight`,
+`meandiameter`, `meanage`, `sawlogvolume`, `pulpwoodvolume`, `stemcount`,
+`volumegrowth`. Output: `data/raw/nls/stand_model_frame_e_ruokolahti.csv`
+(pre-S2), `stand_model_frame_s2_e_ruokolahti.csv` (with spectral features).
 
 Also folded in the A3 carry-forward: `als_cell_metrics` now fills NaN
 `canopy_cover` (points but no first returns) with 0.
@@ -247,80 +265,56 @@ Open decision carried into A4b: the 81 km2 subset spans only ~4 full 5 km CV
 blocks, so 5-fold spatial-block CV as configured is not viable - resolve the
 block size / fold assignment before fitting.
 
-### A4b/A4c - blocked-CV comparison of ABA vs k-NN (done)
+### A4b/A4c/A5a - blocked-CV comparison of ABA vs k-NN (done)
 
-CV: block size 5 km -> 2 km (config), 35 blocks; `assign_cv_folds` orders blocks
-on a snake path and cuts them into 5 runs of roughly equal *stand* count (fold
-sizes 949 / 737 / 1033 / 693 / 754). Predictors for both methods:
-`h_p90, h_p50, h_p25, canopy_cover, density`. ABA = OLS on `sqrt(y)` (A4c
-amendment - see 2.6-3). Pooled out-of-fold metrics
-(`outputs/tables/a4b_cv_metrics.csv`):
+All tables below are the **final established-stand domain** (2.6-7 gate) with the
+**ALS + S2 production feature set** (2.6-6). CV: 2 km blocks (config, was 5 km),
+`assign_cv_folds` snakes the blocks and cuts them into 5 runs of ~equal stand
+count (791 / 635 / 870 / 583 / 601). ABA = OLS on `sqrt(y)` (2.6-3). Pooled
+out-of-fold metrics, `outputs/tables/a4b_cv_metrics.csv`
+(ALS-only ablation in `a4b_cv_metrics_als_only.csv`):
 
-| target | ABA (sqrt) RMSE / bias / R2 | k-NN k=5 RMSE / bias / R2 |
-|--------|------|------|
-| vol_total | 51.7 / -0.1 / 0.72 | 53.8 / +0.9 / 0.69 |
-| vol_pine | 51.9 / -0.4 / 0.40 | 50.9 / +1.9 / 0.42 |
-| vol_spruce | 57.8 / +0.3 / 0.25 | 58.2 / +0.7 / 0.23 |
-| vol_other | 32.0 / -0.0 / 0.26 | 31.9 / -1.7 / 0.27 |
-| basalarea | 5.4 / -0.0 / 0.64 | 5.4 / +0.1 / 0.64 |
-| meanheight | 3.8 / -0.0 / 0.68 | 3.8 / +0.1 / 0.67 |
-| meandiameter | 4.9 / -0.0 / 0.65 | 4.9 / +0.2 / 0.65 |
-| meanage | 12.3 / -0.0 / 0.66 | 12.9 / +0.3 / 0.62 |
+| target | ABA (sqrt) RMSE / R2 | k-NN k=5 RMSE / R2 | ALS-only R2 (ABA) |
+|--------|------|------|------|
+| vol_total | 25.0 m3/ha (13%) / 0.89 | 28.8 / 0.86 | 0.81 |
+| meanheight | 1.04 m (6%) / 0.94 | 1.44 / 0.88 | 0.93 |
+| meandiameter | 1.58 cm (8%) / 0.91 | 2.05 / 0.85 | 0.88 |
+| basalarea | 2.71 m2/ha (12%) / 0.78 | 2.70 / 0.78 | 0.65 |
+| meanage | 6.0 yr (13%) / 0.87 | 7.1 / 0.82 | 0.79 |
+| vol_pine | 42.8 (52%) / 0.57 | 40.4 / 0.62 | 0.38 |
+| vol_spruce | 43.9 (55%) / 0.56 | 42.3 / 0.59 | 0.20 |
+| vol_other | 17.8 (57%) / 0.79 | 19.2 / 0.76 | 0.27 |
 
-k sweep, vol_total: k=1 67.6 / k=3 56.2 / k=5 53.8 / k=7 52.5 / k=10 52.0. Plateau
-by k=7; k=5 keeps the MS-NFI default at ~1 m3/ha off the best score.
+k sweep, vol_total: k=1 36.7 / k=3 30.1 / k=5 28.8 / k=7 28.4 / k=10 28.1. k-NN
+plateaus ~28; ABA (25.0) beats every k.
 
-**Both methods land in the operational range for the aggregate attributes** -
-total volume ~31-33 % RMSE, R2 ~0.7, bias ~0; height / diameter / basal area
-R2 0.62-0.68. With the sqrt transform the transparent OLS is level with or
-slightly ahead of k-NN on these *univariate* scores. k-NN is still carried
-forward because its advantage is a jointly consistent attribute *vector* (one
-real donor stand supplies every number), which univariate RMSE does not show;
-A6's draw-a-polygon output uses that.
+**These are operational-grade.** Stand total-volume RMSE ~13 %, mean-height
+RMSE ~1 m, are in the range Metsakeskus reports for its own ALS product.
+Before the 2.6-7 gate the pooled figures were ~2x worse (vol_total R2 ~0.72,
+RMSE ~52) - held down entirely by the 686 seedling / regeneration stands; see
+A5b for that comparison.
 
-**Per-species volume is weak for both** (pine R2 0.40, spruce 0.25). ALS height
-metrics carry little species information; A5 tests adding the Sentinel-2 bands.
+**On this clean domain the transparent sqrt-OLS beats k-NN** on every structural
+attribute (height 0.94 vs 0.88, diameter 0.91 vs 0.85, volume 0.89 vs 0.86).
+k-NN keeps a small edge only on per-species volume, where its jointly consistent
+donor vector helps. k-NN stays carried forward for the A6 draw-a-polygon output
+(a single real donor stand supplies a physically consistent attribute set).
 
-**Error structure (`outputs/tables/a4b_vol_total_by_volclass.csv`,
-`_by_species.csv`):**
-- Regression toward the mean, both methods: 0-50 m3/ha stands (n 683)
-  over-predicted +40 to +44, RMSE ~95; 300+ stands (n 325) under-predicted ~-59.
-  ALS cell medians cannot separate a freshly cleared stand from a young one. The
-  100-200 m3/ha classes are well behaved (RMSE 28-33, bias < 9).
-- Pine and spruce stands fine (RMSE 41-53, bias < 7). Birch (n 37) and other
-  broadleaf (n 298) badly over-predicted (+140, +42) - small n, mostly sparse
-  young stands.
+**Sentinel-2 unlocks species** (`a4b_cv_metrics_als_only.csv` vs the S2 set):
+per-species volume R2 roughly doubles (spruce 0.20 -> 0.56, pine 0.38 -> 0.57,
+other 0.27 -> 0.79); total volume 0.81 -> 0.89, basal area 0.65 -> 0.78; height
+/ diameter barely move (ALS already carries them). Expected division of labour -
+ALS for structure, optical for species.
 
-### A5a - Sentinel-2 spectral features (done)
+**Error structure (`a4b_vol_total_by_volclass.csv`, `_by_species.csv`):**
+- Mild regression toward the mean: the 300+ m3/ha class (n 325) is
+  under-predicted -19 (ABA) / -30 (k-NN), the residual 0-50 class (n 37, mostly
+  `Y1` seedling-with-overstorey) over-predicted ~+24. The 50-300 m3/ha range is
+  tight (RMSE 20-25, bias < 8).
+- By main species, pine and spruce are even (RMSE ~24, bias < 3 for ABA); the
+  mixed-broadleaf group (n 289) is over-predicted +18.
 
-Fetched an epoch-matched 2023 summer median composite over the 81 km2 subset
-(`fetch_s2_composite`, window `s2_2023`, ~40 s; cached
-`data/raw/sentinel2/s2_s2_2023__e_ruokolahti_sub.tif`). `add_spectral_features`
-adds the per-stand median of each band plus NDVI / NDRE / NDMI; all 4,166 stands
-kept (no cloud gaps). Re-ran the blocked CV with ALS-only vs ALS + S2 predictors
-(`outputs/tables/a5_als_vs_als_s2.csv`), R2 (k-NN k=5 / ABA sqrt):
-
-| target | ALS only | ALS + S2 |
-|--------|----------|----------|
-| vol_total | 0.70 / 0.72 | 0.73 / 0.75 |
-| vol_pine | 0.42 / 0.40 | 0.58 / 0.55 |
-| vol_spruce | 0.23 / 0.25 | 0.56 / 0.54 |
-| vol_other | 0.27 / 0.26 | 0.73 / 0.73 |
-| basalarea | 0.64 / 0.64 | 0.68 / 0.69 |
-| meanheight | 0.67 / 0.68 | 0.67 / 0.68 |
-| meandiameter | 0.65 / 0.65 | 0.66 / 0.67 |
-| meanage | 0.62 / 0.66 | 0.64 / 0.69 |
-
-**The spectral input is what unlocks species.** Per-species volume R2 roughly
-doubles (spruce 0.25 -> 0.54, pine 0.42 -> 0.58, other 0.27 -> 0.73), RMSE for
-spruce 58 -> 44 m3/ha. Structural attributes (height, diameter, basal area) barely
-move - ALS already carries them. Total volume gains a little (0.72 -> 0.75).
-ABA (sqrt) and k-NN stay level with each other throughout. This is the expected
-division of labour and matches the operational stack: ALS for structure, optical
-for species. ALS + S2 is the Module A production feature set (decision 2.6-6);
-ALS-only is kept as the ablation.
-
-### A5b - circularity probe and the model domain (done; one decision pending)
+### A5b - circularity probe and the model domain (done)
 
 **Circularity probe (`outputs/tables/a5b_circularity_probe.csv`).** Two parts:
 
@@ -352,29 +346,10 @@ ALS + optical signal, which the model - trained overwhelmingly on established
 forest - maps to a non-zero volume, so relative error explodes. These stands are
 also most of the "0-50 m3/ha over-predicted +44" tail seen in A4c.
 
-**Established stands only (drop dev class A0 / T1 / T2, n 4,166 -> 3,480), ALS+S2:**
-
-| target | ABA (sqrt) RMSE / R2 | k-NN k=5 RMSE / R2 |
-|--------|------|------|
-| vol_total | 25.0 m3/ha (13%) / 0.89 | 28.8 / 0.86 |
-| meanheight | 1.04 m (6%) / 0.94 | 1.44 / 0.88 |
-| meandiameter | 1.58 cm (8%) / 0.91 | 2.05 / 0.85 |
-| basalarea | 2.71 m2/ha (12%) / 0.78 | 2.70 / 0.78 |
-| meanage | 6.0 yr / 0.87 | 7.1 / 0.82 |
-| vol_pine | 42.8 (52%) / 0.57 | 40.4 / 0.62 |
-| vol_spruce | 43.9 (55%) / 0.56 | 42.3 / 0.59 |
-
-These are operational-grade (stand volume ~13 % RMSE is in the range Metsakeskus
-reports for its own ALS product). The pooled A4/A5a numbers were being halved by
-the 686 seedling stands. On the clean established-forest domain the transparent
-**sqrt-OLS clearly beats k-NN** for the structural attributes; k-NN keeps a small
-edge only on per-species volume.
-
-**Decision pending (Sam): gate Module A to established stands** - exclude
-development classes A0 / T1 / T2 from the reference and modelling set, state the
-model domain explicitly. A regeneration stand has no growing stock to estimate
-and is identified (Module B, or dev class, or `h_p90 < ~5 m`), not estimated -
-which is how an operational tool treats bare ground too.
+Dropping dev class A0 / T1 / T2 (n 4,166 -> 3,480) lifts vol_total R2 from ~0.72
+to 0.89 and removes the low-end bias. **Resolved as decision 2.6-7: gate Module A
+to established stands.** The gated-domain result tables are the A4b/A4c/A5a
+section above; this section keeps the datasource-4/5 split as the evidence.
 
 ### A5c-A6
 Benchmark vs MS-NFI 2023 (`fetch_msnfi`, not yet implemented); performance on

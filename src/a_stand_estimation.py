@@ -216,6 +216,12 @@ def stand_model_frame(
     s = s[s["treestanddatasource"].astype("string").isin(["4", "5"])]
     s = s[s["maingroup"].astype("string") == "1"]
     s = s[s["volume"].notna()].copy()
+    # Module A domain: established stands only. Regeneration / seedling classes
+    # (A0 open, T1/T2 seedling) hold no growing stock to estimate - they are
+    # identified elsewhere (Module B, dev class, low ALS height), not modelled.
+    excl_dev = [str(c) for c in (m.get("exclude_dev_classes") or [])]
+    if excl_dev:
+        s = s[~s["developmentclass"].astype("string").isin(excl_dev)]
 
     cells = pd.read_csv(als_metrics_csv)
     pts = gpd.GeoDataFrame(
