@@ -1,0 +1,35 @@
+# boreal-stand-intelligence/.github/workflows/ci.yml
+# Matches the existing portfolio repos: lint, config schema validation, unit tests.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e . --no-deps
+
+      - name: Lint
+        run: flake8 fi_forest_data src tests
+
+      - name: Validate pipeline configuration
+        run: python -m fi_forest_data.validate config/pipeline.yaml
+
+      - name: Unit tests
+        run: pytest -q

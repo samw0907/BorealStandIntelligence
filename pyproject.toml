@@ -1,0 +1,21 @@
+# boreal-stand-intelligence/pyproject.toml
+# Minimal packaging. `pip install -e . --no-deps` makes fi_forest_data and src
+# importable from any working directory, in tests, in an IDE, and in the
+# container, without PYTHONPATH juggling. Runtime dependencies live in
+# requirements.txt and are installed separately. Nothing here is published.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "boreal-stand-intelligence"
+version = "0.0.0"
+description = "Project 1 of a Finnish forestry geospatial portfolio piece"
+requires-python = ">=3.11"
+
+[tool.setuptools]
+packages = ["fi_forest_data", "src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

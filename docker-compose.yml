@@ -1,0 +1,23 @@
+# boreal-stand-intelligence/docker-compose.yml
+# Two services off one image: the pipeline run and the test run. Matches the
+# portfolio convention (MatoGrossoCarbon, LAwildfireSAR).
+
+services:
+  pipeline:
+    build: .
+    command: ["python", "-m", "src.run"]
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      # If a data source needs a key, create config/.env yourself and uncomment
+      # the line below. It is mounted read-only and never baked into the image;
+      # nothing in this repo writes it.
+      # - ./config/.env:/app/config/.env:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  test:
+    build: .
+    command: ["python", "-m", "pytest", "-q"]
+    volumes:
+      - ./config:/app/config:ro

@@ -1,0 +1,35 @@
+# boreal-stand-intelligence/requirements.txt
+# Python 3.11+. One shared virtualenv at the working directory root serves both
+# portfolio repos during development. Versions left unpinned at scaffold time;
+# they get pinned once the environment is first built.
+
+# Core geospatial and analysis
+rasterio
+geopandas
+shapely
+pyproj
+numpy
+pandas
+scipy
+matplotlib
+requests
+pyyaml
+rasterstats
+
+# Terrain and hydrology (used more heavily in the companion repo; kept here for
+# the shared data access layer and any DEM handling in Module A)
+whitebox
+pysheds
+
+# Point clouds (ALS height metrics, Module A)
+laspy
+# PDAL is installed via conda or system packages, not pip. See Dockerfile.
+
+# Statistics. scikit-learn is used for NearestNeighbors as a k-NN utility by
+# default; wider use as an ML framework is a design decision to raise first.
+statsmodels
+scikit-learn
+
+# Development and CI
+flake8
+pytest

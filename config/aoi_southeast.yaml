@@ -1,0 +1,9 @@
+# boreal-stand-intelligence/config/aoi_southeast.yaml
+# Project 1 area of interest. Fixed rectangular working extent, EPSG:3067.
+# Southeastern Finland: Puumala - Ruokolahti - southern Savonlinna.
+# 57 x 71 km, approx 4,047 km2.
+
+name: southeast_finland
+description: Puumala - Ruokolahti - southern Savonlinna working extent
+crs: EPSG:3067
+bbox_3067: [553000, 6780000, 610000, 6851000]
