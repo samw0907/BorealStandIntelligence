@@ -36,7 +36,9 @@ THEMES = {
     "mean_diameter": "keskilapimitta",  # centimetres
     "basal_area": "ppa",              # m2/ha
     "age": "ika",                     # years
-    "land_class": "maaluokka",
+    "land_class": "maaluokka",        # 1 forest land, 2 scrub, ...
+    "site_fertility": "kasvupaikka",  # site fertility class 1 (rich) .. 8 (poor)
+    "canopy_cover": "latvuspeitto",   # %
 }
 
 MSNFI_NODATA = (32766, 32767)

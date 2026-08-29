@@ -107,3 +107,316 @@ def c1_model_frame(
         + (np.floor(cent.geometry.y / _BLOCK_M) * _BLOCK_M).astype("int64").astype(str)
     )
     return s.reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# C1b - point-based presence / background sample and logistic regression
+# ---------------------------------------------------------------------------
+
+C1_PREDICTORS = ["spruce_share", "age", "site_fertility", "prior_damage_dist_km"]
+# expected sign of the association with damage, from the Finnish literature.
+# site_fertility is the MS-NFI kasvupaikka class (1 rich .. 8 poor), so richer
+# sites - which carry the large spruce - mean a lower number: expected sign -1.
+C1_EXPECTED_SIGN = {"spruce_share": +1, "total_vol": +1, "age": +1,
+                    "site_fertility": -1, "prior_damage_dist_km": -1}
+_MSNFI_NODATA = (32766, 32767)
+
+
+def _sample_buffer_means(points, buffer_m, rasters: dict) -> pd.DataFrame:
+    """Mean of each MS-NFI raster within buffer_m of each point (nodata masked)."""
+    import rasterio
+    from rasterstats import zonal_stats
+
+    geoms = list(points.geometry.buffer(buffer_m))
+    out = {}
+    for name, path in rasters.items():
+        with rasterio.open(path) as src:
+            arr = src.read(1).astype("float64")
+            transform = src.transform
+        arr[np.isin(arr, list(_MSNFI_NODATA))] = np.nan
+        zs = zonal_stats(geoms, arr, affine=transform, stats=["mean"],
+                         nodata=float("nan"))
+        out[name] = [z["mean"] for z in zs]
+    return pd.DataFrame(out, index=points.index)
+
+
+def build_point_sample(
+    declarations_gpkg: str | Path,
+    msnfi: dict,
+    aoi,
+    *,
+    target_years: tuple[int, int] = (2019, 2024),
+    prior_cutoff_year: int = 2018,
+    n_background: int = 6000,
+    buffer_m: int = 500,
+    min_spruce_vol: float = 20.0,
+    exclude_case_radius_m: int = 300,
+    block_km: int = 10,
+    rng_seed: int = 0,
+):
+    """Presence (beetle salvage) / background (available spruce forest) points.
+
+    msnfi -- {"volume_spruce":path, "volume":path, "age":path,
+              "site_fertility":path, "land_class":path}. Predictors are the mean
+    MS-NFI value within buffer_m of each point, so the salvage pixel itself
+    barely contributes. Returns a GeoDataFrame with `presence`, the C1_PREDICTORS
+    and a `block_id` for spatially-blocked evaluation.
+    """
+    import geopandas as gpd
+    import rasterio
+
+    rng = np.random.default_rng(rng_seed)
+
+    decl = beetle_declarations(gpd.read_file(declarations_gpkg))
+    yr = pd.to_numeric(decl["DECLARATIONARRIVALYEAR"], errors="coerce")
+    cases = decl[(yr >= target_years[0]) & (yr <= target_years[1])].copy()
+    cases["geometry"] = cases.geometry.centroid
+    cases = cases[cases.geometry.within(aoi.to_polygon())].reset_index(drop=True)
+    prior = decl[yr <= prior_cutoff_year].copy()
+    prior["geometry"] = prior.geometry.centroid
+
+    with rasterio.open(msnfi["land_class"]) as lc:
+        land = lc.read(1)
+        lc_t = lc.transform
+    with rasterio.open(msnfi["volume_spruce"]) as vs:
+        sprucevol = vs.read(1).astype("float64")
+    sprucevol[np.isin(sprucevol, list(_MSNFI_NODATA))] = np.nan
+
+    minx, miny, maxx, maxy = aoi.bbox_3067
+    inv = ~lc_t
+    keep_x, keep_y = [], []
+    need = n_background
+    case_xy = np.c_[cases.geometry.x.to_numpy(), cases.geometry.y.to_numpy()]
+    while need > 0:
+        px = rng.uniform(minx, maxx, need * 3)
+        py = rng.uniform(miny, maxy, need * 3)
+        col, row = inv * (px, py)
+        col = col.astype(int)
+        row = row.astype(int)
+        ok = (row >= 0) & (row < land.shape[0]) & (col >= 0) & (col < land.shape[1])
+        px, py, col, row = px[ok], py[ok], col[ok], row[ok]
+        good = (land[row, col] == 1) & (sprucevol[row, col] >= min_spruce_vol)
+        px, py = px[good], py[good]
+        if len(case_xy):
+            d = np.sqrt(((px[:, None] - case_xy[:, 0]) ** 2
+                         + (py[:, None] - case_xy[:, 1]) ** 2).min(axis=1))
+            px, py = px[d > exclude_case_radius_m], py[d > exclude_case_radius_m]
+        keep_x.extend(px.tolist())
+        keep_y.extend(py.tolist())
+        need = n_background - len(keep_x)
+    bg = gpd.GeoDataFrame(
+        {"presence": 0},
+        geometry=gpd.points_from_xy(keep_x[:n_background], keep_y[:n_background]),
+        crs="EPSG:3067", index=range(n_background),
+    )
+    ca = gpd.GeoDataFrame(
+        {"presence": 1}, geometry=cases.geometry.values, crs="EPSG:3067",
+        index=range(10_000, 10_000 + len(cases)),
+    )
+    pts = pd.concat([ca, bg])
+
+    feat = _sample_buffer_means(pts, buffer_m, {
+        "spruce_vol": msnfi["volume_spruce"], "total_vol": msnfi["volume"],
+        "age": msnfi["age"], "site_fertility": msnfi["site_fertility"],
+    })
+    pts = pts.join(feat)
+    pts["spruce_share"] = np.clip(pts["spruce_vol"] / pts["total_vol"].replace(0, np.nan),
+                                  0.0, 1.0)
+
+    pr_xy = np.c_[prior.geometry.x.to_numpy(), prior.geometry.y.to_numpy()]
+    pxy = np.c_[pts.geometry.x.to_numpy(), pts.geometry.y.to_numpy()]
+    if len(pr_xy):
+        dmin = np.sqrt(((pxy[:, None, 0] - pr_xy[None, :, 0]) ** 2
+                        + (pxy[:, None, 1] - pr_xy[None, :, 1]) ** 2).min(axis=1))
+        pts["prior_damage_dist_km"] = dmin / 1000.0
+    else:
+        pts["prior_damage_dist_km"] = np.nan
+
+    b = block_km * 1000
+    pts["block_id"] = (
+        (np.floor(pts.geometry.x / b) * b).astype("int64").astype(str) + "_"
+        + (np.floor(pts.geometry.y / b) * b).astype("int64").astype(str)
+    )
+    pts = pts.dropna(subset=C1_PREDICTORS).reset_index(drop=True)
+    return pts
+
+
+def _standardise(df: pd.DataFrame, cols: list[str], stats=None):
+    if stats is None:
+        stats = {c: (float(df[c].mean()), float(df[c].std() or 1.0)) for c in cols}
+    z = df[cols].copy()
+    for c in cols:
+        mu, sd = stats[c]
+        z[c] = (df[c] - mu) / sd
+    return z, stats
+
+
+def fit_c1_logit(sample: pd.DataFrame, predictors: list[str] | None = None):
+    """Logistic regression of presence on standardised predictors (statsmodels).
+
+    Returns (result, coef_table). The table carries the standardised coefficient,
+    its 95 % CI, the odds ratio per 1 SD, the p-value, and whether the sign
+    matches the Finnish-literature expectation.
+    """
+    import statsmodels.api as sm
+
+    predictors = predictors or C1_PREDICTORS
+    z, _ = _standardise(sample, predictors)
+    x = sm.add_constant(z)
+    res = sm.Logit(sample["presence"].to_numpy(), x).fit(disp=False)
+
+    ci = res.conf_int()
+    rows = []
+    for name in predictors:
+        lo, hi = float(ci.loc[name, 0]), float(ci.loc[name, 1])
+        coef = float(res.params[name])
+        rows.append({
+            "predictor": name, "coef_std": round(coef, 3),
+            "ci_low": round(lo, 3), "ci_high": round(hi, 3),
+            "odds_ratio_per_sd": round(float(np.exp(coef)), 3),
+            "p_value": round(float(res.pvalues[name]), 4),
+            "expected_sign": C1_EXPECTED_SIGN.get(name),
+            "sign_matches": bool(np.sign(coef) == C1_EXPECTED_SIGN.get(name, 0)),
+        })
+    coef_table = pd.DataFrame(rows).sort_values(
+        "coef_std", key=lambda s: s.abs(), ascending=False).reset_index(drop=True)
+    return res, coef_table
+
+
+def c1_spatial_cv(sample: pd.DataFrame, predictors: list[str] | None = None,
+                  *, n_folds: int = 5, seed: int = 0):
+    """Out-of-fold presence probabilities under block-held-out CV.
+
+    Whole `block_id` groups are assigned to folds, so train and test never share
+    a 10 km block. Returns the sample with `p_logit` and `p_index` (the additive
+    baseline) columns added.
+    """
+    import statsmodels.api as sm
+
+    predictors = predictors or C1_PREDICTORS
+    rng = np.random.default_rng(seed)
+    blocks = list(sample["block_id"].unique())
+    rng.shuffle(blocks)
+    fold_of = {b: i % n_folds for i, b in enumerate(blocks)}
+    fold = sample["block_id"].map(fold_of).to_numpy()
+
+    p_logit = np.full(len(sample), np.nan)
+    p_index = np.full(len(sample), np.nan)
+    for f in range(n_folds):
+        tr, te = sample[fold != f], sample[fold == f]
+        if te.empty or tr["presence"].nunique() < 2:
+            continue
+        ztr, stats = _standardise(tr, predictors)
+        zte, _ = _standardise(te, predictors, stats)
+        res = sm.Logit(tr["presence"].to_numpy(),
+                       sm.add_constant(ztr)).fit(disp=False)
+        p_logit[fold == f] = res.predict(sm.add_constant(zte, has_constant="add"))
+        idx = sum(C1_EXPECTED_SIGN[c] * zte[c] for c in predictors)
+        p_index[fold == f] = 1.0 / (1.0 + np.exp(-idx))
+
+    out = sample.copy()
+    out["cv_fold"] = fold
+    out["p_logit"] = p_logit
+    out["p_index"] = p_index
+    return out
+
+
+def c1_pr_metrics(sample: pd.DataFrame) -> dict:
+    """Average precision for the logit model and the additive-index baseline."""
+    from sklearn.metrics import average_precision_score, precision_recall_curve
+
+    y = sample["presence"].to_numpy()
+    ok = sample["p_logit"].notna().to_numpy()
+    out = {"n": int(ok.sum()), "prevalence": round(float(y[ok].mean()), 4)}
+    for col, key in (("p_logit", "logit"), ("p_index", "index")):
+        p = sample[col].to_numpy()
+        pr, rc, _ = precision_recall_curve(y[ok], p[ok])
+        out[key] = {
+            "average_precision": round(float(average_precision_score(y[ok], p[ok])), 4),
+            "precision": [round(float(v), 4) for v in pr],
+            "recall": [round(float(v), 4) for v in rc],
+        }
+    return out
+
+
+def run_module_c1(
+    cfg: dict,
+    *,
+    declarations_gpkg: str | Path,
+    msnfi: dict,
+    aoi,
+    out_dir: str | Path,
+    fetch_dates: dict,
+    seed: int = 0,
+) -> dict:
+    """End-to-end C1: build the point sample, fit the logistic regression,
+    evaluate under blocked CV, and write report.json + tables + figures."""
+    import json
+
+    from src.figures import module_c1_coefficients, module_c1_pr_curve
+    from fi_forest_data.io import attribution_for, run_metadata
+
+    out_dir = Path(out_dir)
+    (out_dir / "tables").mkdir(parents=True, exist_ok=True)
+    (out_dir / "figures").mkdir(parents=True, exist_ok=True)
+
+    sample = build_point_sample(declarations_gpkg, msnfi, aoi, rng_seed=seed)
+    res, coef = fit_c1_logit(sample)
+    cv = c1_spatial_cv(sample, seed=seed)
+    pr = c1_pr_metrics(cv)
+
+    coef.to_csv(out_dir / "tables" / "coefficient_table.csv", index=False)
+    sample.drop(columns="geometry").to_csv(out_dir / "tables" / "point_sample.csv",
+                                           index=False)
+    pr_rows = []
+    for model in ("logit", "index"):
+        for p, r in zip(pr[model]["precision"], pr[model]["recall"]):
+            pr_rows.append({"model": model, "precision": p, "recall": r})
+    pd.DataFrame(pr_rows).to_csv(out_dir / "tables" / "pr_curve.csv", index=False)
+
+    ap = {"logit": pr["logit"]["average_precision"],
+          "index": pr["index"]["average_precision"]}
+    module_c1_coefficients(out_dir / "tables" / "coefficient_table.csv",
+                           out_dir / "figures" / "c1_coefficients.png")
+    module_c1_pr_curve(out_dir / "tables" / "pr_curve.csv",
+                       out_dir / "figures" / "c1_pr_curve.png",
+                       average_precision=ap, prevalence=pr["prevalence"])
+
+    report = {
+        "module": "C1 - bark beetle stand susceptibility",
+        "generated": run_metadata(cfg, fetch_dates, aoi_bbox=aoi.bbox_3067),
+        "design": "point-based presence (beetle/insect salvage) vs background "
+                  "(available spruce forest); logistic regression on MS-NFI "
+                  "landscape predictors sampled in a 500 m buffer",
+        "n_cases": int(sample["presence"].sum()),
+        "n_background": int((sample["presence"] == 0).sum()),
+        "prevalence": pr["prevalence"],
+        "mcfadden_pseudo_r2": round(float(res.prsquared), 3),
+        "llr_p_value": float(res.llr_pvalue),
+        "coefficients": coef.to_dict(orient="records"),
+        "evaluation": {
+            "scheme": "spatially-blocked CV, 10 km blocks -> 5 folds",
+            "average_precision_logit": ap["logit"],
+            "average_precision_additive_index": ap["index"],
+            "note": "average precision, not accuracy; prevalence "
+                    f"{pr['prevalence']} is the random baseline",
+        },
+        "driver_ranking": [r["predictor"] for r in coef.to_dict(orient="records")],
+        "caveats": [
+            "173 salvage events in the 2019-2024 window; adequate for 4 "
+            "predictors but not a large sample.",
+            "Background points are available spruce forest, not confirmed "
+            "undamaged (standard SDM assumption).",
+            "Predictors from MS-NFI 2023; the target spans 2019-2024. The 500 m "
+            "buffer mean is dominated by surrounding forest, limiting the "
+            "salvage-pixel bias.",
+            "Stand age enters with an unexpected sign at this landscape scale - "
+            "reported, not hidden.",
+            "Climatic water balance and forest-edge density (two cited Finnish "
+            "drivers) are added in C1c.",
+        ],
+        "attribution": attribution_for(["metsakeskus", "luke"]),
+    }
+    (out_dir / "report.json").write_text(json.dumps(report, indent=2, default=str),
+                                         encoding="utf-8")
+    return report

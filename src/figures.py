@@ -126,6 +126,53 @@ def module_a_msnfi_agreement(agreement_csv, out_path) -> str:
     return _save(fig, out_path)
 
 
+def module_c1_coefficients(coef_csv, out_path) -> str:
+    """Forest plot of odds ratio per 1 SD (log x), CI whiskers, OR=1 reference."""
+    df = pd.read_csv(coef_csv).iloc[::-1]
+    y = np.arange(len(df))
+    lo = np.exp(df["ci_low"])
+    hi = np.exp(df["ci_high"])
+    orr = df["odds_ratio_per_sd"]
+    colour = ["#2b7a3d" if m else "#b5651d" for m in df["sign_matches"]]
+
+    fig, ax = plt.subplots(figsize=(6.4, 3.4))
+    ax.hlines(y, lo, hi, color=colour, lw=2)
+    ax.scatter(orr, y, color=colour, zorder=3)
+    ax.axvline(1.0, color="k", lw=1, ls="--")
+    ax.set_xscale("log")
+    ax.set_yticks(y)
+    ax.set_yticklabels(df["predictor"])
+    ax.set_xlabel("odds ratio per 1 SD (log scale); dashed = no effect")
+    ax.set_title("Module C1 - bark beetle salvage: standardised drivers")
+    green = plt.Line2D([0], [0], color="#2b7a3d", lw=2)
+    brown = plt.Line2D([0], [0], color="#b5651d", lw=2)
+    ax.legend([green, brown], ["sign as expected", "sign unexpected"], fontsize=8)
+    return _save(fig, out_path)
+
+
+def module_c1_pr_curve(pr_csv, out_path, *, average_precision=None,
+                       prevalence=None) -> str:
+    """Precision-recall curves for the logit model and the additive-index baseline."""
+    df = pd.read_csv(pr_csv)
+    fig, ax = plt.subplots(figsize=(5.2, 5.0))
+    for model, colour in (("logit", "#1f4e79"), ("index", "#b5651d")):
+        d = df[df["model"] == model]
+        ap = (average_precision or {}).get(model)
+        lbl = "logistic regression" if model == "logit" else "additive index"
+        ax.plot(d["recall"], d["precision"], color=colour,
+                label=f"{lbl}" + (f" (AP {ap:.3f})" if ap else ""))
+    if prevalence is not None:
+        ax.axhline(prevalence, color="k", lw=1, ls="--",
+                   label=f"prevalence {prevalence:.3f}")
+    ax.set_xlabel("recall")
+    ax.set_ylabel("precision")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, min(1.0, max(0.2, df["precision"].max() * 1.1)))
+    ax.set_title("Module C1 - precision-recall (damage is rare)", fontsize=11)
+    ax.legend(fontsize=8)
+    return _save(fig, out_path)
+
+
 def module_a_error_by_volclass(volclass_csv, out_path) -> str:
     """Bias (mean estimate - register) by observed volume class, ABA and k-NN."""
     df = pd.read_csv(volclass_csv)

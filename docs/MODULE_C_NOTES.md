@@ -92,16 +92,67 @@ spruce stands and the rest points the expected way - damaged stands are older
 share, on richer mineral sites, and closer to earlier damage (1.2 vs 2.5 km).
 The signal is real; the design in 2.3 is what lets us measure it cleanly.
 
-### C1b - next
-Build the point sample (cases + background), sample MS-NFI predictors in the
-buffer, add FMI water balance and edge density, fit the logistic regression,
-report the coefficient table, PR curve and driver ranking.
+### C1b - point sample and logistic regression (done)
+
+`build_point_sample`: 170 beetle / insect-damage salvage locations arriving
+2019-2024 that fall in the AOI (the response), plus 6,000 background points
+drawn at random in spruce-bearing forest (MS-NFI `volume_spruce` >= 20 m3/ha on
+forest land), each >= 300 m from a case. Predictors are the **mean MS-NFI value
+in a 500 m buffer** of each point - a landscape measure, dominated by the
+surrounding un-salvaged forest: spruce share (`volume_spruce / volume`), stand
+age, site fertility class; plus straight-line distance to the nearest 2012-2018
+beetle declaration (`prior_damage_dist_km`). MS-NFI 2023 rasters fetched for the
+full AOI via `fetch_msnfi` (COG-tiled, ~5 s each).
+
+`fit_c1_logit` - logistic regression on the standardised predictors,
+`c1_spatial_cv` - out-of-fold probabilities under 10 km blocked CV (train and
+test never share a block), `c1_pr_metrics` - average precision vs an
+equal-weight additive-index baseline.
+
+**Coefficient table (odds ratio per 1 SD, 170 cases / 6,170 points):**
+
+| predictor | OR per SD | 95 % CI | p | direction |
+|-----------|-----------|---------|---|-----------|
+| prior_damage_dist_km | 0.30 | 0.20-0.44 | <0.001 | as expected (closer to the 2012-2018 wave -> much higher risk) |
+| spruce_share | 1.64 | 1.35-1.98 | <0.001 | as expected (more spruce -> more risk) |
+| age | 0.78 | 0.64-0.95 | 0.014 | **unexpected** - older forest slightly lower risk at this scale |
+| site_fertility | 1.06 | 0.83-1.35 | 0.63 | not significant |
+
+McFadden pseudo-R2 0.11, overall LLR p ~1e-36. Blocked-CV **average precision:
+logistic 0.079, additive index 0.065, prevalence (random) 0.028.**
+
+**What it means.** Two things drive where beetle salvage happens, and both are
+landscape properties, not stand properties: **proximity to the previous
+outbreak** (by far the strongest - classic contagious spread, matches Kaervemo
+et al.) and **how much spruce is in the neighbourhood**. Stand age and site
+fertility add almost nothing once those are controlled - age even enters with the
+"wrong" sign (reported, not hidden; likely because the 2013-2016 wave had already
+removed the oldest spruce, so the 2019-2024 wave hit relatively younger stands).
+The model beats random ~3x but only modestly beats a naive weighted index - which
+is the honest picture for beetle risk mapping and matches the plan's
+"known-hard-problem" framing. Figures: `c1_coefficients.png` (forest plot),
+`c1_pr_curve.png`.
+
+### C1c - next
+Add the two remaining cited Finnish drivers: a climatic water-balance term (needs
+`fmi.py` built) and forest-edge density (from Module B clearcuts). Re-fit and
+compare.
 
 ---
 
 ## 4. Results and what they mean
 
-(filled in as C1b / C2 complete)
+- **Where beetle salvage occurs is mostly explained by spread, not by stand
+  character.** Distance to the previous (2012-2018) outbreak is the dominant
+  predictor (OR 0.30 per SD), then neighbourhood spruce share (OR 1.64). Stand
+  age and site fertility are weak-to-null at 500 m landscape scale.
+- **The model is useful for ranking, not for finding.** Blocked-CV average
+  precision 0.079 vs 0.028 prevalence: the top-ranked areas are ~6x
+  enriched for damage at low recall, but precision decays to the base rate by
+  ~50 % recall. A transparent additive index gets most of the way there (0.065).
+- **This is the expected result** and it is stated as such: bark beetle risk
+  mapping from open landscape data is a real but limited signal; the value is the
+  ranked driver list and an honest performance number, not a precise map.
 
 ---
 
@@ -112,4 +163,8 @@ report the coefficient table, PR curve and driver ranking.
 - Background points are "available spruce landscape", not confirmed undamaged.
 - Predictors from MS-NFI 2023 for events spanning 2019-2024 - landscape spruce
   content changes slowly, but the mismatch is noted.
-- `fmi.py` is still a scaffold; the climatic water-balance term arrives in C1b.
+- `fmi.py` is still a scaffold; the climatic water-balance term arrives in C1c.
+- Only 170 cases in the 2019-2024 window - adequate for 4 predictors, not large.
+- `age` enters with an unexpected sign at 500 m landscape scale - reported.
+- Background = available spruce forest, not confirmed undamaged (SDM assumption).
+- MS-NFI 2023 predictors vs a 2019-2024 target; buffered mean limits the mismatch.
