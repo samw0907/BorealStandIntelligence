@@ -387,10 +387,30 @@ on a coarse 16 m satellite grid saturates and regresses high volumes toward the
 mean, and a raster zonal median over a stand also dilutes with small gaps that
 the stand polygon and the register exclude. Documented, not corrected.
 
-### A5d-A6
-Performance on Module B's `inventory_stale` stands (needs ALS/S2 outside the
-subset - assess feasibility); estimable-attribute summary; draw-a-polygon demo;
-report.json.
+### A6a - estimable-attribute summary and report.json (done)
+
+`run_module_a` (in `src/a_stand_estimation.py`) runs the whole module end to end -
+frame, blocked CV (ALS and ALS+S2), attribute summary, MS-NFI benchmark,
+circularity probe - and writes `outputs/p1/module_a/{run_id}/report.json` plus
+tables. `estimable_tier` buckets each attribute by its cross-validated R2 and
+relative error ("reliable" needs both R2 >= 0.85 and RMSE <= 20 %, so a
+high-R2 / high-scatter attribute like sawlog volume is not oversold).
+
+| tier | attributes (best method, R2) |
+|------|------------------------------|
+| reliable | mean height (0.94), mean diameter (0.91), **total volume (0.89, 13 %)**, mean age (0.87) |
+| usable | sawlog volume (0.90 R2 but 28 % RMSE), other-species volume (0.79), basal area (0.78), stem count (0.74), pulpwood volume (0.69) |
+| weak | pine volume (0.62), spruce volume (0.59), volume growth (0.54) |
+| not estimable | none |
+
+The `inventory_stale` question is answered by cross-reference, not new
+processing: Module B flags 11,104 stands (~13,700 ha) AOI-wide whose record
+predates a detected disturbance; those are identified for re-inventory, not
+estimated here. No ALS is fetched outside the 81 km2 subset (three-tier rule).
+
+### A6b
+Draw-a-polygon demo (fit the production model on all established stands, polygon
+in -> attribute vector out, with the k-NN donor stands shown); figures.
 
 ---
 

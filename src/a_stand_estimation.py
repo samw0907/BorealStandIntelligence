@@ -403,6 +403,214 @@ def run_a4b(frame: pd.DataFrame, cfg: dict, *, targets: list[str] | None = None,
 
 
 # ---------------------------------------------------------------------------
+# A6 - estimable-attribute summary and the Module A report
+# ---------------------------------------------------------------------------
+
+def estimable_tier(r2: float, rmse_pct: float) -> str:
+    """Bucket a cross-validated attribute result into a plain-language tier.
+
+    'reliable' needs both a high R2 and a modest relative error, so an attribute
+    that ranks well but scatters widely (e.g. sawlog volume) is not oversold.
+    """
+    if r2 >= 0.85 and rmse_pct <= 20.0:
+        return "reliable"
+    if r2 >= 0.65:
+        return "usable"
+    if r2 >= 0.45:
+        return "weak"
+    return "not_estimable"
+
+
+def attribute_summary(metrics_s2: pd.DataFrame,
+                      metrics_als: pd.DataFrame | None = None) -> pd.DataFrame:
+    """One row per target: the better of ABA / k-NN k=5, its scores and tier.
+
+    If metrics_als is given, adds the ALS-only R2 for the same best method so the
+    Sentinel-2 contribution is visible per attribute.
+    """
+    cand = metrics_s2[metrics_s2["method"].isin(["aba", "knn5"])]
+    rows = []
+    for tgt, grp in cand.groupby("target"):
+        best = grp.loc[grp["rmse"].idxmin()]
+        row = {
+            "attribute": tgt, "best_method": best["method"],
+            "rmse": round(float(best["rmse"]), 2),
+            "rmse_pct": round(float(best["rmse_pct"]), 1),
+            "bias": round(float(best["bias"]), 2),
+            "r2": round(float(best["r2"]), 3),
+            "tier": estimable_tier(best["r2"], best["rmse_pct"]),
+        }
+        if metrics_als is not None:
+            a = metrics_als[(metrics_als["target"] == tgt)
+                            & (metrics_als["method"] == best["method"])]
+            row["r2_als_only"] = round(float(a["r2"].iloc[0]), 3) if len(a) else None
+        rows.append(row)
+    order = ["reliable", "usable", "weak", "not_estimable"]
+    out = pd.DataFrame(rows)
+    out["_o"] = out["tier"].map({t: i for i, t in enumerate(order)})
+    return out.sort_values(["_o", "r2"], ascending=[True, False]).drop(columns="_o").reset_index(drop=True)
+
+
+def build_module_a_report(
+    cfg: dict,
+    *,
+    n_stands: int,
+    subset_bbox: tuple,
+    feature_set: list[str],
+    fold_sizes: list[int],
+    summary: pd.DataFrame,
+    msnfi_rows: list[dict],
+    circularity: dict,
+    fetch_dates: dict,
+    caveats: list[str],
+) -> dict:
+    """Assemble the Module A report.json payload."""
+    from fi_forest_data.io import attribution_for, run_metadata
+
+    return {
+        "module": "A - stand attribute estimation",
+        "generated": run_metadata(cfg, fetch_dates, aoi_bbox=subset_bbox),
+        "domain": {
+            "description": "established stands only (dev class A0/T1/T2 gated out)",
+            "validation_subset_bbox_3067": list(subset_bbox),
+            "n_stands": n_stands,
+            "epoch": "2023 stands + 2023 ALS + 2023 Sentinel-2 (epoch-matched)",
+        },
+        "method": {
+            "aba": "OLS on sqrt(y), fixed predictors, E[y]=mu^2+Var back-transform",
+            "knn": "k-NN imputation (k=5), z-scored features, mineral/peat strata",
+            "feature_set": feature_set,
+            "cross_validation": {
+                "scheme": "spatially-blocked, 2 km blocks -> 5 folds by stand count",
+                "fold_sizes": list(fold_sizes),
+            },
+        },
+        "attribute_summary": summary.to_dict(orient="records"),
+        "msnfi_2023_benchmark": msnfi_rows,
+        "circularity_probe": circularity,
+        "caveats": caveats,
+        "attribution": attribution_for(["metsakeskus", "nls", "luke", "copernicus"]),
+    }
+
+
+def run_module_a(
+    cfg: dict,
+    *,
+    stand_gpkg: str | Path,
+    als_metrics_csv: str | Path,
+    s2_tif: str | Path,
+    gridcell_gpkg: str | Path,
+    msnfi_tifs: dict,
+    out_dir: str | Path,
+    fetch_dates: dict,
+    inventory_stale_gpkg: str | Path | None = None,
+) -> dict:
+    """End-to-end Module A: build the frame, run the blocked CV (ALS and ALS+S2),
+    summarise estimable attributes, benchmark against MS-NFI, probe circularity,
+    and write report.json + tables under out_dir.
+
+    msnfi_tifs -- {target_column: (msnfi_geotiff_path, unit_scale)}.
+    Returns the report dict.
+    """
+    import json
+    import shutil
+
+    import geopandas as gpd
+
+    out_dir = Path(out_dir)
+    (out_dir / "tables").mkdir(parents=True, exist_ok=True)
+
+    s2cols = [f"s2_{b}" for b in S2_BANDS] + ["s2_ndvi", "s2_ndre", "s2_ndmi"]
+    frame = add_spectral_features(
+        stand_model_frame(stand_gpkg, als_metrics_csv, cfg), s2_tif
+    ).dropna(subset=s2cols).reset_index(drop=True)
+
+    folds = assign_cv_folds(frame, cfg)
+    fold_sizes = [int((folds == f).sum()) for f in sorted(folds.unique())]
+
+    res_s2 = run_a4b(frame, cfg, predictors=ABA_PREDICTORS + s2cols)
+    res_als = run_a4b(frame, cfg, predictors=ABA_PREDICTORS)
+    summary = attribute_summary(res_s2["metrics"], res_als["metrics"])
+
+    pred = res_s2["predictions"].set_index("standid")
+    fi = frame.set_index("standid")
+    msnfi_rows = []
+    for tgt, (tif, scale) in msnfi_tifs.items():
+        ref = fi[tgt]
+        est = pred[f"knn5__{tgt}"].reindex(fi.index)
+        val = msnfi_stand_medians(fi, tif, scale=scale)
+        ok = ref.notna() & est.notna() & val.notna()
+
+        def _agree(a):
+            e = (a[ok] - val[ok]).to_numpy()
+            return {"r": round(float(np.corrcoef(a[ok], val[ok])[0, 1]), 3),
+                    "rmse": round(float(np.sqrt(np.mean(e ** 2))), 1),
+                    "bias": round(float(e.mean()), 1)}
+
+        msnfi_rows.append({"attribute": tgt, "n": int(ok.sum()),
+                           "register_vs_msnfi": _agree(ref),
+                           "estimate_vs_msnfi": _agree(est)})
+
+    fc = add_official_laser_metrics(frame, gridcell_gpkg).dropna(
+        subset=s2cols + ["LASERHEIGHT", "LASERDENSITY"]).reset_index(drop=True)
+    ct = ["vol_total", "vol_spruce", "meanheight"]
+    b = run_a4b(fc, cfg, targets=ct, predictors=ABA_PREDICTORS + s2cols)["metrics"]
+    p = run_a4b(fc, cfg, targets=ct,
+                predictors=ABA_PREDICTORS + s2cols + ["LASERHEIGHT", "LASERDENSITY"])["metrics"]
+
+    def _r2(m, t):
+        return float(m[(m["target"] == t) & (m["method"] == "knn5")]["r2"].iloc[0])
+
+    circularity = {
+        "our_vs_official_r": {
+            "h_p90_vs_LASERHEIGHT": round(float(fc["h_p90"].corr(fc["LASERHEIGHT"])), 3),
+            "density_vs_LASERDENSITY": round(float(fc["density"].corr(fc["LASERDENSITY"])), 3),
+        },
+        "r2_delta_adding_official_metrics": {t: round(_r2(p, t) - _r2(b, t), 3) for t in ct},
+    }
+
+    caveats = [
+        "Single 81 km2 validation subset; one inventory epoch (2023).",
+        "Reference attributes are ALS-model outputs, not field measurement "
+        "(open data has no field-truth stand set).",
+        "Per-species volume = total x stand species proportion (no measured "
+        "per-species volume in the stand layer).",
+        "MS-NFI benchmark carries a consistent +35-37 m3/ha volume offset "
+        "(affects the register equally; an MS-NFI property, not a pipeline error).",
+        "Regeneration / seedling stands (dev class A0/T1/T2) are out of domain - "
+        "identified, not estimated.",
+    ]
+    if inventory_stale_gpkg is not None and Path(inventory_stale_gpkg).exists():
+        g = gpd.read_file(inventory_stale_gpkg, columns=["area", "inventory_stale"])
+        st = g[g["inventory_stale"]] if "inventory_stale" in g else g.iloc[:0]
+        caveats.append(
+            f"Module B flags {len(st)} stands ({st['area'].sum():.0f} ha) as "
+            "inventory-stale AOI-wide; their recorded attributes predate a "
+            "detected disturbance and are unreliable for an offer."
+        )
+
+    report = build_module_a_report(
+        cfg, n_stands=len(frame),
+        subset_bbox=tuple(cfg["module_a_stand_estimation"]["validation_subset_bbox_3067"]),
+        feature_set=ABA_PREDICTORS + s2cols, fold_sizes=fold_sizes,
+        summary=summary, msnfi_rows=msnfi_rows, circularity=circularity,
+        fetch_dates=fetch_dates, caveats=caveats,
+    )
+
+    (out_dir / "report.json").write_text(json.dumps(report, indent=2, default=str),
+                                         encoding="utf-8")
+    summary.to_csv(out_dir / "tables" / "attribute_summary.csv", index=False)
+    res_s2["metrics"].round(4).to_csv(out_dir / "tables" / "cv_metrics_als_s2.csv", index=False)
+    res_als["metrics"].round(4).to_csv(out_dir / "tables" / "cv_metrics_als_only.csv", index=False)
+    for name in ("a4b_vol_total_by_volclass.csv", "a4b_vol_total_by_species.csv",
+                 "a5c_msnfi_benchmark.csv"):
+        src = Path("outputs/tables") / name
+        if src.exists():
+            shutil.copy(src, out_dir / "tables" / name)
+    return report
+
+
+# ---------------------------------------------------------------------------
 # A5 - Sentinel-2 spectral features (does a spectral input lift species?)
 # ---------------------------------------------------------------------------
 
