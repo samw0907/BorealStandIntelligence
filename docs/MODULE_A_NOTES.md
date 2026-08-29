@@ -78,6 +78,59 @@ reference plot ids + weights, and is a second benchmark target.
   stands are correlated and random splits inflate the scores.
 - k-NN stratified by mineral vs peat soil, as MS-NFI does; start k = 5.
 
+### 2.6 Modelling design decisions (A4b, 2026-08-29, agreed with Sam)
+
+Recorded so the design reasoning is traceable later.
+
+1. **Modelling unit: stand-level.** Aggregate the 16 m ALS metrics to the stand
+   (per-stand median) and model stand attributes directly.
+   - *Why:* the reference (Metsakeskus stand attributes) is genuinely per-stand,
+     and the deliverable is "draw a stand polygon -> offer attributes", so the
+     unit matches both. Modelling at cell level would need a per-cell truth; the
+     only per-cell numbers available are Metsakeskus's own operational estimates,
+     so regressing onto those is circular (our pipeline vs theirs, not vs
+     inventory). Assigning stand means down to cells just pseudo-replicates.
+   - *Cost:* within-stand variation is discarded; ~median 32 ALS cells per stand
+     makes the median a stable summary.
+
+2. **Cross-validation: 2 km spatial blocks grouped into 5 spatially-disjoint
+   folds.** `cv.block_size_km` changed 5 -> 2 in `config/pipeline.yaml`.
+   - *Why:* the 81 km2 subset spans only ~4 full 5 km blocks (>99% of stands in
+     4 blocks), so 5-fold blocked CV as originally configured cannot run. 2 km
+     blocks give ~16-20 groups; assigning whole blocks (not stands) to folds
+     keeps train and test spatially separated, which is the point of blocked CV -
+     adjacent stands are autocorrelated and random splits inflate the score.
+   - *Alternative considered:* 4-fold leave-one-block-out at 5 km. Rejected as
+     coarser and fewer folds for no real gain.
+
+3. **Area-based regression form: OLS on `log(y + 1)`** against a fixed predictor
+   set `h_p90 + h_p50 + h_p25 + canopy_cover + density`, back-transformed with a
+   smearing estimator (Duan) to correct log-bias.
+   - *Why:* this is the transparent-statistics standard for ABA. Fixed predictors
+     (no stepwise / no automated selection) keep the model inspectable and
+     defensible; `log(y+1)` handles the zero-volume cleared stands and the
+     right-skew of volume; smearing removes the systematic under-prediction that
+     naive back-transform of a log model causes.
+
+4. **k-NN imputation: z-scored features, Euclidean, k in {1,3,5,7,10}, stratified
+   mineral vs peat, one donor set imputes the whole attribute vector.**
+   - *Why:* this is the MS-NFI operational method (Tomppo). Standardising
+     features before Euclidean distance stops `density` and the height
+     percentiles being compared on different scales; one shared donor set per
+     target keeps the imputed attributes mutually consistent (a real stand's
+     numbers), which is k-NN's advantage over independent regressions. k = 5 is
+     the MS-NFI reference point; the sweep shows sensitivity. `sklearn`
+     `NearestNeighbors` is used only as the distance search, not as an ML model.
+
+5. **Circularity is acknowledged, not eliminated.** Datasource-4 ("interpreted")
+   stands already carry ALS-informed attributes, so A4 measures how well open
+   data + published method *reproduce* the operational estimate, not agreement
+   with independent field truth.
+   - *Mitigation (A5):* report the 405 datasource-5 ("laser") stands separately;
+     run the models with and without MS-NFI-style features to show the ALS
+     metrics are doing the work; benchmark against MS-NFI 2023 as a second
+     reference.
+
 ---
 
 ## 3. Method
@@ -180,10 +233,55 @@ Open decision carried into A4b: the 81 km2 subset spans only ~4 full 5 km CV
 blocks, so 5-fold spatial-block CV as configured is not viable - resolve the
 block size / fold assignment before fitting.
 
-### A4b-A6
-ABA regression + k-NN imputation, spatially-blocked CV; RMSE/bias by species and
-volume class, ABA vs k-NN; vs MS-NFI 2023; circularity check; performance on
-Module B's `inventory_stale` stands; estimable attributes; draw-a-polygon demo.
+### A4b - blocked-CV first run of ABA vs k-NN (done, one amendment pending)
+
+CV: block size changed 5 km -> 2 km (config), 35 blocks, whole blocks assigned to
+5 folds on a snake path (`assign_cv_folds`). Predictors for both methods:
+`h_p90, h_p50, h_p25, canopy_cover, density`. Pooled out-of-fold metrics
+(`outputs/tables/a4b_cv_metrics.csv`):
+
+| target | method | RMSE | bias | RMSE% | R2 |
+|--------|--------|------|------|-------|-----|
+| vol_total | ABA (log+smear) | 92.3 | +28.8 | 56% | 0.10 |
+| vol_total | k-NN k=5 | 54.2 | +0.5 | 33% | 0.69 |
+| vol_spruce | ABA | 66.6 | +10.1 | 98% | 0.00 |
+| vol_spruce | k-NN k=5 | 57.6 | +0.3 | 85% | 0.25 |
+| vol_pine | k-NN k=5 | 51.4 | +1.9 | 74% | 0.41 |
+| basalarea | k-NN k=5 | 5.4 | +0.1 | 28% | 0.64 |
+| meanheight | k-NN k=5 | 3.8 | +0.1 | 25% | 0.66 |
+| meandiameter | k-NN k=5 | 4.9 | +0.1 | 27% | 0.65 |
+| meanage | k-NN k=5 | 12.9 | +0.2 | 32% | 0.62 |
+
+k sweep on vol_total: k=1 RMSE 69.7 / k=3 57.1 / k=5 54.2 / k=7 52.9 / k=10 52.1.
+Gentle improvement past k=5; k=5 keeps the MS-NFI default and near-best score.
+
+**k-NN works and behaves like the operational method.** Total volume at 33% RMSE,
+R2 0.69, near-zero bias is in the normal range for ALS stand estimation. Species
+split is weaker (pine R2 0.41, spruce 0.25) - expected, ALS height metrics carry
+limited species information without a spectral input; A5 will test adding the
+Sentinel-2 composite bands.
+
+**The agreed ABA form (log(y+1) + Duan smearing) misbehaves and needs one
+amendment.** It over-predicts total volume by +29 m3/ha. Cause: the log1p
+residuals have a long positive tail (cleared/young stands the linear-in-log model
+over-shoots), which inflates the Duan smearing factor to ~1.32 and pushes every
+back-transformed prediction up; without smearing the same model *under*-predicts
+by ~20 (the classic log-bias). A **sqrt transform** with the standard
+E[y] = mu^2 + Var(resid) correction removes it: per-fold bias ~0, per-fold RMSE
+42-56 (pooled ~ k-NN). **Proposed amendment to design decision 2.6-3: model ABA
+on sqrt(y), not log(y+1).** Rationale: variance-stabilising for volume, handles
+zero-volume stands natively, no smearing pathology. Still a fixed-predictor
+transparent OLS.
+
+Also noted: fold 0 came out small (153 stands vs 750-1160) because the snake
+order put the sparse western sliver blocks together. A4c will assign blocks to
+folds by cumulative stand count so folds are balanced.
+
+### A4c-A6
+Apply the sqrt-ABA amendment and balanced folds; RMSE/bias by species and volume
+class; add Sentinel-2 bands and re-test species; vs MS-NFI 2023; circularity
+check; performance on Module B's `inventory_stale` stands; estimable attributes;
+draw-a-polygon demo.
 
 ---
 

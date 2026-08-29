@@ -63,8 +63,8 @@ module_a_stand_estimation:
     max_geographic_distance_km: 50
   cv:
     method: spatial_block
-    block_size_km: 5
-    n_folds: 5
+    block_size_km: 2          # 5 km gave only ~4 blocks over the 81 km2 subset; 2 km -> ~16-20
+    n_folds: 5                # whole blocks assigned to folds, so train/test stay spatially disjoint
   exclude_stale_stands: true          # flagged by module B, analysed separately
 
 module_c_beetle:
