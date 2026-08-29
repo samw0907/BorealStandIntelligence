@@ -82,18 +82,46 @@ reference plot ids + weights, and is a second benchmark target.
 
 ## 3. Method
 
-(filled in as A1-A6 are built)
+### A1 - reference layers (done)
 
-- **A1** fetch the 16 m grid-cell layer for the subset.
-- **A2** fetch 0.5 p ALS for the subset, height-normalise against the 2 m DEM,
-  compute per-16 m-cell metrics (height percentiles, canopy cover, return density).
-- **A3** fetch the latvusmalli 1 m CHM; compare our ALS canopy metrics to it
-  ("what does the paid 5 p buy").
-- **A4** ABA regression + k-NN imputation, spatially-blocked CV.
-- **A5** RMSE / bias by species and volume class, ABA vs k-NN; vs MS-NFI 2023;
-  circularity check (with / without MS-NFI features); performance on Module B's
-  `inventory_stale` stands.
-- **A6** which attributes are estimable, the draw-a-polygon demo, report.json.
+Fetched for the subset and cached: `stand` (8,884) and `gridcell` (564,752 cells,
+all dated 2023). The grid-cell layer carries per-species volumes, `LASERHEIGHT` /
+`LASERDENSITY` (Metsakeskus's own ALS metrics - a direct comparison target),
+`DOMINANTHEIGHT`, `BASALAREA`, `AGE`, and `SAMPLEPLOTID1-6` + weights (the
+operational k-NN structure).
+
+### A2 - ALS fetch and per-cell metrics (done)
+
+- **NLS file service** (`fi_forest_data/nls.py`): OGC API Processes. Non-standard
+  quirk - the process id must be in the POST body (`{"id": ..., "inputs": ...}`)
+  as well as the URL path, or the F5 gateway returns a bare HTTP 400. Job async:
+  POST execution -> poll `/jobs/{id}` -> GET `/jobs/{id}/results` -> download the
+  `results[].path` URLs (each needs the api-key).
+- **2 m DEM**: `korkeusmalli_2m_bbox` for the subset bbox -> one 4500x4500
+  GeoTIFF (2 m, EPSG:3067, float32, nodata -9999), 81 MB, ~20 s.
+- **0.5 p ALS**: `laserkeilausaineisto_05_karttalehti`, `dataSetInput` =
+  `05p_2020-`. Delivered by 3 km map sheets (`utm5` layer of
+  `karttalehtijako_koko_suomi`); the subset touches 16 sheets -> 16 LAZ tiles,
+  848 MB, ~90 s. **124.5 M points, density 0.86 p/m2** (above the 0.5 nominal;
+  the 0.54 p/m2 the method needs is comfortably cleared). LAS 1.2, point format 1,
+  classified (ground + low/med/high veg).
+- **Per-16 m-cell metrics** (`src.a_stand_estimation.als_cell_metrics`): points
+  clipped to the subset bbox, height-normalised against the 2 m DEM (bilinear
+  sample), noise and sub-ground returns dropped. Per cell (aligned to the
+  Metsakeskus / MS-NFI 16 m grid): height percentiles P25-P95, mean/max height,
+  canopy cover (first returns > 2 m), point density. **282,033 cells** with >= 30
+  points (~89% of the subset), ~43 s. Sanity: density mean 0.96 p/m2, h_max
+  median 17.8 m, canopy cover median 0.70, h_p90 median 13.1 m - all plausible
+  for managed boreal forest.
+
+### A3 - CHM benchmark (next)
+Fetch the latvusmalli 1 m CHM; compare our ALS canopy metrics to it ("what does
+the paid 5 p buy").
+
+### A4-A6
+ABA regression + k-NN imputation, spatially-blocked CV; RMSE/bias by species and
+volume class, ABA vs k-NN; vs MS-NFI 2023; circularity check; performance on
+Module B's `inventory_stale` stands; estimable attributes; draw-a-polygon demo.
 
 ---
 

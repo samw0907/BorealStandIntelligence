@@ -22,7 +22,7 @@ whitebox
 pysheds
 
 # Point clouds (ALS height metrics, Module A)
-laspy
+laspy[lazrs]
 # PDAL is installed via conda or system packages, not pip. See Dockerfile.
 
 # Statistics. scikit-learn is used for NearestNeighbors as a k-NN utility by

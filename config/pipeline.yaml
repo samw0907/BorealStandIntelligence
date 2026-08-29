@@ -46,7 +46,7 @@ module_a_stand_estimation:
   method: [aba_regression, knn_imputation]
   # DERIVE AND BENCHMARK: derive on this subset, benchmark, then consume the
   # official product at AOI scale. Epoch-matched: 2023 stands + Parikkala 2023 ALS.
-  validation_subset_bbox_3067: [598000, 6805000, 610000, 6817000]   # E_ruokolahti, 144 km2
+  validation_subset_bbox_3067: [600000, 6806000, 609000, 6815000]   # E_ruokolahti 81 km2 (fits NLS 100 km2 DEM cap)
   reference_datasource_exclude: [7, 9]   # treestanddatasource codes not decoded; drop from reference set
   als:
     year_min: 2020                       # 2020+ open 0.5 p product (NLS OGC API, free key)
