@@ -339,8 +339,11 @@ def _knn_predict(train: pd.DataFrame, test: pd.DataFrame, targets: list[str],
 
 
 def run_a4b(frame: pd.DataFrame, cfg: dict, *, targets: list[str] | None = None,
-            k_report: int = 5) -> dict:
+            predictors: list[str] | None = None, k_report: int = 5) -> dict:
     """Spatially-blocked CV of ABA regression and k-NN imputation.
+
+    predictors -- feature columns for both methods; defaults to ABA_PREDICTORS
+    (the ALS-only set). Pass ALS + Sentinel-2 columns to test the spectral lift.
 
     Returns {"predictions": DataFrame, "metrics": DataFrame}. Metrics are pooled
     over out-of-fold predictions: RMSE, bias (mean pred - obs), RMSE% of the mean
@@ -348,6 +351,7 @@ def run_a4b(frame: pd.DataFrame, cfg: dict, *, targets: list[str] | None = None,
     """
     a = cfg["module_a_stand_estimation"]
     targets = targets or TARGETS
+    predictors = predictors or ABA_PREDICTORS
     wp = float(a["knn"]["weight_power"])
     k_values = list(a["knn"]["k_values"])
     strat = a["knn"]["stratify_by"]
@@ -362,9 +366,9 @@ def run_a4b(frame: pd.DataFrame, cfg: dict, *, targets: list[str] | None = None,
         rec = {"standid": te["standid"].to_numpy(), "fold": fold}
         for t in targets:
             rec[f"obs__{t}"] = te[t].to_numpy()
-            rec[f"aba__{t}"] = _aba_predict(tr, te, t, ABA_PREDICTORS)
+            rec[f"aba__{t}"] = _aba_predict(tr, te, t, predictors)
         for k in k_values:
-            pred = _knn_predict(tr, te, targets, ABA_PREDICTORS, k=k,
+            pred = _knn_predict(tr, te, targets, predictors, k=k,
                                 weight_power=wp, stratify_col=strat)
             for j, t in enumerate(targets):
                 rec[f"knn{k}__{t}"] = pred[:, j]
@@ -390,3 +394,41 @@ def run_a4b(frame: pd.DataFrame, cfg: dict, *, targets: list[str] | None = None,
     metrics = pd.DataFrame(mrows)
     metrics.attrs["k_report"] = k_report
     return {"predictions": pred_df, "metrics": metrics}
+
+
+# ---------------------------------------------------------------------------
+# A5 - Sentinel-2 spectral features (does a spectral input lift species?)
+# ---------------------------------------------------------------------------
+
+S2_BANDS = ["blue", "green", "red", "rededge1", "nir", "swir16", "swir22"]
+
+
+def add_spectral_features(frame, s2_tif: str | Path):
+    """Add per-stand median Sentinel-2 reflectance and three indices to the frame.
+
+    frame must be a GeoDataFrame (EPSG:3067 stand polygons). One column per band
+    (`s2_<band>`) plus `s2_ndvi`, `s2_ndre`, `s2_ndmi`. Stands with no clear
+    pixel come back NaN - drop them before modelling.
+    """
+    import rasterio
+    from rasterstats import zonal_stats
+
+    out = frame.copy()
+    geoms = list(out.geometry)
+    with rasterio.open(s2_tif) as src:
+        transform = src.transform
+        names = list(src.descriptions)
+        for bi, name in enumerate(names, start=1):
+            band = src.read(bi).astype("float64")
+            zs = zonal_stats(geoms, band, affine=transform, stats=["median"],
+                             nodata=float("nan"))
+            out[f"s2_{name}"] = [z["median"] for z in zs]
+
+    def _nd(a, b):
+        pa, pb = out[f"s2_{a}"], out[f"s2_{b}"]
+        return (pa - pb) / (pa + pb)
+
+    out["s2_ndvi"] = _nd("nir", "red")
+    out["s2_ndre"] = _nd("nir", "rededge1")
+    out["s2_ndmi"] = _nd("nir", "swir16")
+    return out

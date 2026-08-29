@@ -135,6 +135,16 @@ Recorded so the design reasoning is traceable later.
      metrics are doing the work; benchmark against MS-NFI 2023 as a second
      reference.
 
+6. **Production feature set: ALS metrics + a 2023 Sentinel-2 summer composite**
+   (A5, 2026-08-29). Predictors are the 5 ALS metrics plus the 7 median band
+   reflectances and NDVI / NDRE / NDMI from an epoch-matched
+   2023-06-01..08-31 median composite (`sentinel2.composite_windows.s2_2023`).
+   - *Why:* ALS height metrics carry almost no species information; in the
+     blocked CV the S2 bands roughly double the per-species volume R2 (see A5)
+     at little cost to the structural attributes. This mirrors the real
+     operational stack (MS-NFI has always used satellite optical; ALS is the
+     newer half). ALS-only stays reported as the ablation.
+
 ---
 
 ## 3. Method
@@ -281,11 +291,40 @@ metrics carry little species information; A5 tests adding the Sentinel-2 bands.
   broadleaf (n 298) badly over-predicted (+140, +42) - small n, mostly sparse
   young stands.
 
-### A5-A6
-Add Sentinel-2 bands and re-test species; vs MS-NFI 2023; circularity check
-(with / without MS-NFI-style features, datasource-5 stands reported separately);
-performance on Module B's `inventory_stale` stands; estimable-attribute summary;
-draw-a-polygon demo; report.json.
+### A5a - Sentinel-2 spectral features (done)
+
+Fetched an epoch-matched 2023 summer median composite over the 81 km2 subset
+(`fetch_s2_composite`, window `s2_2023`, ~40 s; cached
+`data/raw/sentinel2/s2_s2_2023__e_ruokolahti_sub.tif`). `add_spectral_features`
+adds the per-stand median of each band plus NDVI / NDRE / NDMI; all 4,166 stands
+kept (no cloud gaps). Re-ran the blocked CV with ALS-only vs ALS + S2 predictors
+(`outputs/tables/a5_als_vs_als_s2.csv`), R2 (k-NN k=5 / ABA sqrt):
+
+| target | ALS only | ALS + S2 |
+|--------|----------|----------|
+| vol_total | 0.70 / 0.72 | 0.73 / 0.75 |
+| vol_pine | 0.42 / 0.40 | 0.58 / 0.55 |
+| vol_spruce | 0.23 / 0.25 | 0.56 / 0.54 |
+| vol_other | 0.27 / 0.26 | 0.73 / 0.73 |
+| basalarea | 0.64 / 0.64 | 0.68 / 0.69 |
+| meanheight | 0.67 / 0.68 | 0.67 / 0.68 |
+| meandiameter | 0.65 / 0.65 | 0.66 / 0.67 |
+| meanage | 0.62 / 0.66 | 0.64 / 0.69 |
+
+**The spectral input is what unlocks species.** Per-species volume R2 roughly
+doubles (spruce 0.25 -> 0.54, pine 0.42 -> 0.58, other 0.27 -> 0.73), RMSE for
+spruce 58 -> 44 m3/ha. Structural attributes (height, diameter, basal area) barely
+move - ALS already carries them. Total volume gains a little (0.72 -> 0.75).
+ABA (sqrt) and k-NN stay level with each other throughout. This is the expected
+division of labour and matches the operational stack: ALS for structure, optical
+for species. ALS + S2 is the Module A production feature set (decision 2.6-6);
+ALS-only is kept as the ablation.
+
+### A5b-A6
+Circularity check (with / without MS-NFI-style features, datasource-5 stands
+reported separately); benchmark vs MS-NFI 2023; performance on Module B's
+`inventory_stale` stands; estimable-attribute summary; draw-a-polygon demo;
+report.json.
 
 ---
 

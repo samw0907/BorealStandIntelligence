@@ -12,6 +12,7 @@ sentinel2:
   composite_windows:
     pre:  {start: "2021-06-01", end: "2021-08-31"}
     post: {start: "2024-06-01", end: "2024-08-31"}
+    s2_2023: {start: "2023-06-01", end: "2023-08-31"}   # Module A: epoch-matched to the 2023 stands + ALS
   max_cloud_scene_pct: 40
   cloud_mask: scl                     # SCL classes to exclude listed below
   scl_exclude: [3, 8, 9, 10, 11]     # cloud shadow, cloud med/high prob, thin cirrus
