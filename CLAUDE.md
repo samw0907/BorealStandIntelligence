@@ -72,6 +72,8 @@ Scaffolding complete. **TASK 00 discovery complete (2026-08-29)** —
 records the deviations and open decisions. `config/pipeline.yaml` needed no changes.
 Next: **Module B** (harvest detection). Then A, then C.
 
-Open decisions to settle at the right time (TASK_00_FINDINGS.md): D1 ALS vintage
-(open ALS over this AOI is 2009–2015 only) — decide before Module A. The SE AOI is
-mixed pine–spruce (spruce ~28%), not spruce-dominant; no method impact.
+TASK 00 decisions (TASK_00_FINDINGS.md): D1 resolved — Module A uses the 2020+
+open 0.5 p ALS (2019–2023 flights cover the AOI) via the NLS OGC API; Sam
+registers a free key at Module A start (`.env`, gitignored, never committed).
+D2 (Project 2 deadwood) deferred. The SE AOI is mixed pine–spruce (spruce ~28%),
+not spruce-dominant; no method impact.

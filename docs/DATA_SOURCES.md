@@ -211,32 +211,41 @@ DEM, matches the 2023 inventory round, peatland-improved), thresholds
 
 ## 4. National Land Survey (Maanmittauslaitos, NLS)
 
-**Route — resolved:** Funet/CSC mirror `https://www.nic.funet.fi/index/geodata/mml/`,
-CC BY 4.0, **no key**. The official NLS OGC API
-(`avoin-paikkatieto.maanmittauslaitos.fi`) returns **HTTP 401 without an API key**
-— avoided by using the mirror. If a keyed NLS endpoint ever becomes necessary,
-stop and ask (permanent constraint).
+**Routes:**
+- **Funet/CSC mirror** `https://www.nic.funet.fi/index/geodata/mml/` — CC BY 4.0,
+  **no key**. Carries the 2 m DEM, the topographic database, and the **2008–2019
+  legacy laser round**. Use for DEM and hydrography.
+- **NLS official OGC API** `https://avoin-paikkatieto.maanmittauslaitos.fi/` —
+  returns **HTTP 401 without an API key**. The key is **free** (email registration
+  at the NLS site, no strong identification — the data is open CC BY 4.0). Needed
+  for the **2020+ laser scanning 0.5 p** product, which the mirror does not carry.
+  Sam registers the key when Module A starts; it is supplied to the pipeline as an
+  environment variable / `.env` and is **never committed** (`.gitignore` covers
+  `.env` and `config/.env`). Do not read, write, or commit it.
 
 | Product | Path (mirror) | Spec | Tier | Used by |
 |---|---|---|---|---|
-| **2 m elevation model** | `dem2m/2008_latest/{block}/{sub}/{tile}.tif` | 3 km tiles, 2 m, EPSG:3067, Float32, nodata −9999; `.tif.aux.xml` sidecars | DERIVE input | P2 D, P2 E |
-| **ALS point cloud** | `laserkeilaus/2008_latest/{year}/{block}/{sub}/{tile}.laz` + national index shapefile `2008_latest.shp` (fields `label`, `data_id`, `path`) | LAZ, LAS 1.0–1.2, point format 1, EPSG:3067, 3 km tiles | DERIVE input | P1 A |
-| Topographic database | `maastotietokanta/2025/{shp,gpkg}/` + per-mapsheet-block dirs; themes `MTK-virtavesi` (streams), `MTK-vakavesi` (lakes), `MTK-tie` (roads), `MTK-suo` (mires) | national GPKGs are 3–19 GB — use the per-block dirs | FETCH | P2 D (culvert burn), P2 E (hydrography comparison) |
+| **2 m elevation model** | mirror `dem2m/2008_latest/{block}/{sub}/{tile}.tif` | 3 km tiles, 2 m, EPSG:3067, Float32, nodata −9999; `.tif.aux.xml` sidecars | DERIVE input | P2 D, P2 E |
+| **ALS 0.5 p (2020+ national programme)** | NLS OGC API (`avoin-paikkatieto…/lidar/…`), **free key** | LAZ, EPSG:3067; 0.5 p/m² (thinned from 5 p) | DERIVE input | **P1 A** |
+| ALS legacy round (2008–2019) | mirror `laserkeilaus/2008_latest/…` + index shapefile `2008_latest.shp` | LAZ, LAS 1.0–1.2, EPSG:3067, 3 km tiles; measured ~1.6 p/m² in the SE area | fallback only | — |
+| Topographic database | mirror `maastotietokanta/2025/{shp,gpkg}/` + per-mapsheet-block dirs; themes `MTK-virtavesi` (streams), `MTK-vakavesi` (lakes), `MTK-tie` (roads), `MTK-suo` (mires) | national GPKGs 3–19 GB — use the per-block dirs | FETCH | P2 D, P2 E |
 | Laser scanning 5 p | — | **LICENSED AND PAID — DO NOT ATTEMPT** | — | — |
-| Orthophotos | `orto/` | — | FETCH | optional |
+| Orthophotos | mirror `orto/` | — | FETCH | optional |
 
-**ALS — important findings (Module A):**
-- Open ALS over the **Project 1 SE AOI is 2009–2015 only** (495 tiles: 2009×159,
-  2010×90, 2011×30, 2015×216). **No post-2019 coverage** — the 2020+ 0.5p national
-  programme has not reached SE Finland. P2 Central AOI: mostly 2010–2015 + 7 tiles
-  from 2020.
-- **Actual point density ~1.6 pts/m²** (2015 tile 1.62; 2009 tile 1.58) — not the
-  nominal 0.5. A 16 m cell holds ~400 points, not ~128. k-NN / ABA feasibility
-  (needs ~0.5) is more than satisfied.
-- Consequence: an **~8-year gap** between the ALS (2015) and the Metsäkeskus stand
-  `measurementdate` (~2023) / MS-NFI 2023. **Decision deferred** — Module A
-  framing / whether to seek fresher ALS / whether to adjust the AOI. See
-  TASK_00_FINDINGS.md; pros/cons/recommendation before Module A.
+**ALS for Module A — resolved (Decision D1):**
+- The **Project 1 SE AOI is fully covered by recent open 0.5 p ALS.** NLS national
+  laser programme status (queried via the OGC API status map, `status = products
+  available`): **Puumala 2019, Lappeenranta 2020, Savonlinna 2021, Juva 2022,
+  Parikkala 2023.** This is the open CC BY 4.0 product, not the paid 5 p.
+- Only barrier: the NLS download API needs a **free** key (see routes above).
+  Sam registers it at Module A start.
+- The key-free Funet mirror carries **only the 2008–2019 legacy round** for this
+  area (2009–2015 tiles, ~1.6 p/m²). Kept as a documented fallback if the key
+  route stalls; not the plan.
+- **Point density note:** the 2020+ product is thinned to ~0.5 p/m² (the legacy
+  round we measured was ~1.6). ~0.5 is still adequate for ABA / k-NN (Tuominen et
+  al. 2014, 0.54 p/m²). Verify on a real tile at Module A start.
+- P2 Central AOI ALS is not needed (Project 2 works off the 2 m DEM, not ALS).
 
 ---
 

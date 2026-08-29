@@ -11,13 +11,16 @@ Public interface (planned):
     fetch_als(aoi, subset=None) -> list[str]     # LAZ tile paths
     fetch_topographic(theme, aoi) -> gpd.GeoDataFrame
 
-Routes confirmed in TASK 00 (docs/DATA_SOURCES.md section 4): the Funet mirror
-https://www.nic.funet.fi/index/geodata/mml/ (no API key; the official NLS OGC API
-needs one and is avoided). dem2m/2008_latest/{block}/{sub}/{tile}.tif (2 m,
-Float32, nodata -9999); laserkeilaus/2008_latest/ LAZ tiles + national index
-shapefile 2008_latest.shp; maastotietokanta/2025/ per-mapsheet-block dirs for
-hydrography and roads. NB: open ALS over the Project 1 SE AOI is 2009-2015 only
-(~1.6 pts/m2); see Decision D1 in docs/TASK_00_FINDINGS.md.
+Routes confirmed in TASK 00 (docs/DATA_SOURCES.md section 4):
+- Funet mirror https://www.nic.funet.fi/index/geodata/mml/ (no key) for the 2 m
+  DEM (dem2m/2008_latest/...), the topographic database
+  (maastotietokanta/2025/ per-mapsheet-block dirs), and the 2008-2019 legacy laser
+  round (fallback only).
+- NLS OGC API https://avoin-paikkatieto.maanmittauslaitos.fi/ for the 2020+ open
+  0.5 p ALS (P1 Module A). Needs a FREE key (open CC BY 4.0 data). The key is read
+  from an environment variable / .env that is gitignored and never committed; this
+  module must not write or log it. The SE AOI is fully covered by 2019-2023
+  national-programme flights (Decision D1, docs/TASK_00_FINDINGS.md).
 
 No implementation yet — scaffold only.
 """

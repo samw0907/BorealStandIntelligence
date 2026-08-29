@@ -85,13 +85,15 @@ long-term monitoring site (2010 storm, outbreak from ~2014); dense harvesting so
 the declaration layer is well populated (~176k declarations in the AOI, current to
 the day); best Sentinel-2 cloud statistics in Finland.
 
-**Scan-date caveat (TASK 00).** Metsäkeskus stand attributes carry usable
-inventory dates (`measurementdate` ≈ 2023, `treestanddatasource`). But the *open
-ALS* over this AOI is **2009–2015 only** (best coverage 2015) — the 2020+ 0.5p
-national programme has not reached SE Finland. So Module A works with an ~8-year
-gap between the ALS and the reference labels. Decision D1 in
-`docs/TASK_00_FINDINGS.md` covers how to frame or resolve this before Module A.
-Actual open ALS density here is ~1.6 pts/m², not 0.5.
+**ALS source (TASK 00, Decision D1 — resolved).** The AOI is fully covered by
+recent open 0.5 p ALS from the national programme: Puumala 2019, Lappeenranta
+2020, Savonlinna 2021, Juva 2022, Parikkala 2023, all "products available". Module
+A uses this (via the NLS OGC API, free key registered at Module A start), so it is
+a clean, current methodology reproduction — no temporal-drift dimension. The
+per-stand "harvested since last scan" question is a Module B output
+(`inventory_stale`), which Module A honours via `exclude_stale_stands`. The 2020+
+product is ~0.5 p/m² (the 2008–2019 legacy round, kept as fallback, measured
+~1.6). Exact epoch/clip decided at Module A start.
 
 FIRST TASK, before any bulk download: verify at feature/pixel level that the AOI
 has current stand data with usable scan dates, sufficient declaration density, and
@@ -158,12 +160,14 @@ polygon, return the attributes an offer needs.
 **ALS metrics (area-based approach).** Height-normalise the 0.5 p point cloud
 against the NLS 2 m DTM, then per 16 m cell compute height percentiles
 (P25/P50/P75/P90/P95), mean and max height, canopy cover as the proportion of
-returns above 2 m, and return density. TASK 00 measured the open ALS over this AOI
-at **~1.6 pts/m²** (2009–2015 campaigns), so a 16 m cell holds roughly 400 points
-— comfortably enough for percentile metrics, not for crown delineation, and the
-documentation should say exactly that. Tuominen et al. 2014 estimated volume,
-species-specific volumes, mean diameter and mean height from ALS at 0.54 p/m², so
-this density is a published working point rather than a gamble.
+returns above 2 m, and return density. The 2020+ open product is ~0.5 p/m² (thinned
+from the 5 p programme); a 16 m cell then holds ~130 points — enough for percentile
+metrics, not for crown delineation, and the documentation should say exactly that.
+Tuominen et al. 2014 estimated volume, species-specific volumes, mean diameter and
+mean height from ALS at 0.54 p/m², so this density is a published working point
+rather than a gamble. (The 2008–2019 legacy round measured ~1.6 p/m² in this area
+— denser, but older; it is the fallback only.) Verify the actual density on a
+delivered tile at Module A start.
 
 **Estimation.** Two approaches, reported side by side:
 1. **Area-based regression** — volume as a function of height percentiles and
