@@ -113,12 +113,18 @@ def c1_model_frame(
 # C1b - point-based presence / background sample and logistic regression
 # ---------------------------------------------------------------------------
 
-C1_PREDICTORS = ["spruce_share", "age", "site_fertility", "prior_damage_dist_km"]
+C1_PREDICTORS = ["spruce_share", "age", "site_fertility", "prior_damage_dist_km",
+                 "recent_clearcut_ha"]
 # expected sign of the association with damage, from the Finnish literature.
 # site_fertility is the MS-NFI kasvupaikka class (1 rich .. 8 poor), so richer
 # sites - which carry the large spruce - mean a lower number: expected sign -1.
+# recent_clearcut_ha is fresh warm/dry forest edge nearby ("sun effect"): +1.
 C1_EXPECTED_SIGN = {"spruce_share": +1, "total_vol": +1, "age": +1,
-                    "site_fertility": -1, "prior_damage_dist_km": -1}
+                    "site_fertility": -1, "prior_damage_dist_km": -1,
+                    "recent_clearcut_ha": +1}
+
+# regeneration fell: purpose 3, or realisation practice in this set (Module B map)
+_REGEN_PRACTICE = {"1", "4", "5", "6", "7", "8", "17"}
 _MSNFI_NODATA = (32766, 32767)
 
 
@@ -167,13 +173,22 @@ def build_point_sample(
 
     rng = np.random.default_rng(rng_seed)
 
-    decl = beetle_declarations(gpd.read_file(declarations_gpkg))
+    all_decl = gpd.read_file(declarations_gpkg)
+    all_yr = pd.to_numeric(all_decl["DECLARATIONARRIVALYEAR"], errors="coerce")
+    decl = beetle_declarations(all_decl)
     yr = pd.to_numeric(decl["DECLARATIONARRIVALYEAR"], errors="coerce")
     cases = decl[(yr >= target_years[0]) & (yr <= target_years[1])].copy()
     cases["geometry"] = cases.geometry.centroid
     cases = cases[cases.geometry.within(aoi.to_polygon())].reset_index(drop=True)
     prior = decl[yr <= prior_cutoff_year].copy()
     prior["geometry"] = prior.geometry.centroid
+
+    # regeneration fells that predate the target window - fresh forest edge
+    is_regen = (_code(all_decl["CUTTINGPURPOSE"]).eq("3")
+                | _code(all_decl["CUTTINGREALIZATIONPRACTICE"]).isin(_REGEN_PRACTICE))
+    clearcuts = all_decl[is_regen
+                         & (all_yr >= prior_cutoff_year - 5)
+                         & (all_yr <= target_years[0] - 1)].copy()
 
     with rasterio.open(msnfi["land_class"]) as lc:
         land = lc.read(1)
@@ -231,6 +246,18 @@ def build_point_sample(
         pts["prior_damage_dist_km"] = dmin / 1000.0
     else:
         pts["prior_damage_dist_km"] = np.nan
+
+    # recent-clearcut area (ha) whose polygon intersects the buffer of each point
+    buf = gpd.GeoDataFrame(geometry=pts.geometry.buffer(buffer_m), crs="EPSG:3067")
+    buf["_pid"] = np.arange(len(buf))
+    if len(clearcuts):
+        cc = clearcuts[["geometry"]].copy()
+        cc["_cc_ha"] = cc.geometry.area / 1e4
+        j = gpd.sjoin(buf, cc, predicate="intersects", how="left")
+        cc_ha = j.groupby("_pid")["_cc_ha"].sum().reindex(range(len(buf))).fillna(0.0)
+        pts["recent_clearcut_ha"] = cc_ha.to_numpy()
+    else:
+        pts["recent_clearcut_ha"] = 0.0
 
     b = block_km * 1000
     pts["block_id"] = (

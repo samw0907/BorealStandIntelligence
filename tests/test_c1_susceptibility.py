@@ -25,10 +25,12 @@ def _synthetic_sample(n=1500, seed=1):
         "age": rng.uniform(20, 120, n),
         "site_fertility": rng.integers(1, 7, n).astype(float),
         "prior_damage_dist_km": rng.exponential(3.0, n),
+        "recent_clearcut_ha": rng.exponential(5.0, n),
     })
     # true risk rises with spruce share, falls with distance to prior damage
     logit = (-3.0 + 2.5 * (df["spruce_share"] - 0.5)
-             - 0.35 * df["prior_damage_dist_km"])
+             - 0.35 * df["prior_damage_dist_km"]
+             + 0.03 * df["recent_clearcut_ha"])
     df["presence"] = (rng.uniform(size=n) < 1 / (1 + np.exp(-logit))).astype(int)
     gx = rng.uniform(0, 50000, n)
     gy = rng.uniform(0, 50000, n)
