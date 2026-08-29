@@ -117,6 +117,8 @@ def als_cell_metrics(
     cc = (firsts.apply(lambda d: (d["h"] > cc_thr).mean(), include_groups=False)
           .rename("canopy_cover").reset_index(drop=True))
     out = pd.concat([out, cc], axis=1)
+    # a cell can hold points but no first returns (rare) -> no cover, read as 0
+    out["canopy_cover"] = out["canopy_cover"].fillna(0.0)
     out["density"] = out["n"] / (_GRID * _GRID)
     out = out[out["n"] >= min_pts].reset_index(drop=True)
     return out
@@ -176,3 +178,72 @@ def _group_pixels(cx: np.ndarray, cy: np.ndarray, val: np.ndarray):
     bounds = np.flatnonzero(np.diff(key)) + 1
     for a, b in zip(np.r_[0, bounds], np.r_[bounds, key.size]):
         yield (int(cx[a]), int(cy[a])), val[a:b]
+
+
+# ---------------------------------------------------------------------------
+# A4 - modelling table: stand attributes + stand-aggregated ALS metrics
+# ---------------------------------------------------------------------------
+
+ALS_FEATURES = ["h_mean", "h_max", "h_p25", "h_p50", "h_p75", "h_p90", "h_p95",
+                "canopy_cover", "density"]
+TARGETS = ["vol_total", "vol_pine", "vol_spruce", "vol_other", "basalarea",
+           "meanheight", "meandiameter", "meanage", "sawlogvolume",
+           "pulpwoodvolume", "stemcount", "volumegrowth"]
+
+
+def stand_model_frame(
+    stand_gpkg: str | Path,
+    als_metrics_csv: str | Path,
+    cfg: dict,
+    *,
+    min_cells: int = 8,
+):
+    """Join ALS 16 m cell metrics up to stand level and attach stand attributes.
+
+    Reference stands only: treestanddatasource in {4 interpreted, 5 laser},
+    maingroup 1 (forest land), non-null volume. ALS features are the per-stand
+    median of each cell metric over cells whose centre falls inside the stand;
+    stands with fewer than min_cells covered cells are dropped. Adds
+    soil_main_type (mineral/peat) and a 5 km spatial-block id for blocked CV.
+    Returns a GeoDataFrame, one row per stand.
+    """
+    import geopandas as gpd
+
+    m = cfg["module_a_stand_estimation"]
+    blk = int(m["cv"]["block_size_km"]) * 1000
+
+    s = gpd.read_file(stand_gpkg)
+    s = s[s["treestanddatasource"].astype("string").isin(["4", "5"])]
+    s = s[s["maingroup"].astype("string") == "1"]
+    s = s[s["volume"].notna()].copy()
+
+    cells = pd.read_csv(als_metrics_csv)
+    pts = gpd.GeoDataFrame(
+        cells,
+        geometry=gpd.points_from_xy(cells["cx"] + _GRID / 2, cells["cy"] + _GRID / 2),
+        crs="EPSG:3067",
+    )
+    j = gpd.sjoin(pts, s[["standid", "geometry"]], predicate="within", how="inner")
+    agg = j.groupby("standid")[ALS_FEATURES].median()
+    agg["n_cells"] = j.groupby("standid").size()
+    agg = agg[agg["n_cells"] >= min_cells]
+
+    df = s.set_index("standid").join(agg, how="inner")
+
+    p_pine = df["proportionpine"].fillna(0.0)
+    p_spruce = df["proportionspruce"].fillna(0.0)
+    p_other = df["proportionother"].fillna(0.0)
+    df["vol_total"] = df["volume"]
+    df["vol_pine"] = df["volume"] * p_pine
+    df["vol_spruce"] = df["volume"] * p_spruce
+    df["vol_other"] = df["volume"] * p_other
+
+    st = pd.to_numeric(df["soiltype"], errors="coerce")
+    df["soil_main_type"] = np.where(st >= 60, "peat", "mineral")
+
+    cent = df.geometry.centroid
+    bx = (np.floor(cent.x / blk) * blk).astype("int64")
+    by = (np.floor(cent.y / blk) * blk).astype("int64")
+    df["block_id"] = bx.astype(str) + "_" + by.astype(str)
+
+    return df.reset_index()

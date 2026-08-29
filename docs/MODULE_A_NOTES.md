@@ -156,7 +156,31 @@ one A4 will use). Two ALS cells had `n >= 30` but zero first returns, giving NaN
 
 Output: `data/raw/nls/chm_cell_stats_e_ruokolahti.csv`.
 
-### A4-A6
+### A4a - modelling table (done)
+
+`src.a_stand_estimation.stand_model_frame` joins the A2 16 m ALS cell metrics up
+to stand level (per-stand median of each metric over cells whose centre falls in
+the stand) and attaches the stand attributes. Reference stands only:
+`treestanddatasource` in {4 interpreted, 5 laser}, `maingroup` 1, non-null
+volume; stands with < 8 covered cells dropped. Adds `soil_main_type`
+(mineral/peat, split at soiltype 60) and a spatial-block id for blocked CV.
+
+**4,166 stands** (3,761 datasource 4, 405 datasource 5), median 32 covered cells.
+Soil: 3,571 mineral / 595 peat. Targets: `vol_total`, `vol_pine/spruce/other`
+(= total x the stand species proportions - the stand layer has no per-species
+volume column), `basalarea`, `meanheight`, `meandiameter`, `meanage`,
+`sawlogvolume`, `pulpwoodvolume`, `stemcount`, `volumegrowth`. Raw Pearson r of
+`h_p90` with vol_total 0.80, meanheight 0.83, meanage 0.80 - the ALS signal is
+clearly present. Output: `data/raw/nls/stand_model_frame_e_ruokolahti.csv`.
+
+Also folded in the A3 carry-forward: `als_cell_metrics` now fills NaN
+`canopy_cover` (points but no first returns) with 0.
+
+Open decision carried into A4b: the 81 km2 subset spans only ~4 full 5 km CV
+blocks, so 5-fold spatial-block CV as configured is not viable - resolve the
+block size / fold assignment before fitting.
+
+### A4b-A6
 ABA regression + k-NN imputation, spatially-blocked CV; RMSE/bias by species and
 volume class, ABA vs k-NN; vs MS-NFI 2023; circularity check; performance on
 Module B's `inventory_stale` stands; estimable attributes; draw-a-polygon demo.
