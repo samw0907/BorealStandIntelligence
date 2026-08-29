@@ -31,6 +31,18 @@ method (the sqrt-OLS area-based model), ALS + one spectral index, a single
 train/test split, one validation figure. The full version stays as the "here is
 how far it can go" artefact.
 
-## When
+## When and the decision path (agreed 2026-08-29)
 
-Project 1 complete -> write-ups done -> then this. Not before.
+Project 1 complete -> then, in order:
+
+1. **Focus on genuinely learning Project 1 well** - the layered write-ups, then
+   Sam working through them until he can narrate every module cold.
+2. **If that lands inside the timeframe:** move on to Project 2 (which may itself
+   be built deliberately leaner and better-explained from the start).
+3. **If it does not:** carve the parts Sam does understand - one attribute (total
+   volume), sqrt-OLS ABA, ALS + one spectral index, one train/test split, one
+   figure - into their own standalone project and present that instead. The full
+   Project 1 stays as the "how far it can go" artefact but is not the thing led
+   with.
+
+Not before Project 1 is done. No slimming mid-build.

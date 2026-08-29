@@ -408,9 +408,78 @@ processing: Module B flags 11,104 stands (~13,700 ha) AOI-wide whose record
 predates a detected disturbance; those are identified for re-inventory, not
 estimated here. No ALS is fetched outside the 81 km2 subset (three-tier rule).
 
-### A6b
-Draw-a-polygon demo (fit the production model on all established stands, polygon
-in -> attribute vector out, with the k-NN donor stands shown); figures.
+### A6b - draw-a-polygon demo and figures (done)
+
+`fit_production_models` fits the ABA sqrt-OLS (one fit per target) and a
+per-stratum k-NN index on the whole established-stand frame; `estimate_polygon`
+takes any EPSG:3067 polygon inside the subset, pulls its median ALS cell metrics
+and median Sentinel-2 reflectance, and returns the attribute vector from both
+methods plus **the real donor stands k-NN used** (ids + inverse-distance
+weights) - the "your estimate is an average of these five actual stands"
+transparency.
+
+`run_module_a` runs a 3-stand demo (low / median / high recorded volume),
+fitting with those three left out so both methods are genuinely out-of-sample
+(k-NN cannot retrieve the stand itself). Result lands in `report.json`
+(`draw_a_polygon_demo`). Example: a 116 m3/ha stand -> ABA 121, k-NN 107; a
+296 m3/ha stand -> ABA 281, k-NN 296.
+
+**Module A is complete.** Open item: wire `run_module_a` into `src/run.py`
+(currently invoked directly); the README section is a project-end task.
+
+### A6c - figure set and what each one shows
+
+Five figures, `src/figures.py`, written to
+`outputs/p1/module_a/{run_id}/figures/`. Chosen to cover the analysis in layers:
+the headline result, the breadth of what is estimable, the two independent
+validations, and the error structure. Recorded here so the rationale is
+traceable for the write-up.
+
+1. **`obs_pred_vol_total.png` - estimate vs register, total volume.** The
+   standard estimation-validation plot: each established stand as (register x,
+   cross-validated estimate y), both methods, 1:1 line, RMSE / R2 in the legend.
+   *Why:* it is the first plot a reviewer looks for; shape (curvature, ceiling,
+   fan) diagnoses *how* a model fails. Total volume is the attribute the module
+   exists to produce.
+   *Signal:* strong - the cloud hugs the 1:1 line across 0-430 m3/ha, R2 0.89 /
+   0.86, no curvature, only mild under-prediction above ~300.
+   *Weakness:* ~3,500 semi-transparent points overplot in the middle - a
+   density / hexbin version would read better on a poster.
+
+2. **`attribute_tiers.png` - R2 per attribute, coloured by estimable tier.**
+   *Why:* the module's real question is "which attributes can open data deliver,
+   and how well"; turns the 12-row metrics table into one ranked, colour-coded
+   view, weak attributes shown honestly.
+   *Signal:* clear gradient - 4 reliable (R2 0.87-0.94), a usable band, 3 weak.
+   *Weakness:* the tier is R2-led, so `sawlogvolume` (R2 0.90 / 28 % RMSE) and
+   `vol_other` (R2 0.79 / 57 % RMSE) look better than their scatter warrants;
+   the "(R2 / %)" label is there to keep that honest.
+
+3. **`spectral_lift.png` - ALS-only vs ALS + Sentinel-2 R2, per attribute
+   (k-NN).** *Why:* shows the division of labour that decision 2.6-6 rests on.
+   *Signal:* strong and on-message - per-species volume roughly doubles or
+   triples (spruce 0.18 -> 0.59, pine 0.40 -> 0.62, other 0.27 -> 0.76), while
+   structural attributes barely move; `meanheight` even dips 0.93 -> 0.88 (extra
+   features add a little k-NN noise to a metric ALS already nails - a fair point
+   to make, not a problem).
+
+4. **`msnfi_agreement.png` - Pearson r with MS-NFI 2023: register vs MS-NFI,
+   and our estimate vs MS-NFI, per attribute.** *Why:* the strongest "this is
+   validated" visual - an independent official product as referee.
+   *Signal:* strong - our estimate (blue) edges the operational register (grey)
+   on every one of the seven attributes. Note this is agreement with a second
+   *model*, not field truth (caveat in section 5).
+
+5. **`error_by_volclass.png` - volume bias by observed volume class, both
+   methods.** *Why:* makes the one real weakness visible - regression toward the
+   mean.
+   *Signal:* textbook fan - low stands over-predicted +24 / +29, high stands
+   under-predicted -19 / -30, near-zero in the 150-200 band; n-labels show the
+   mass is in the mid classes where the model is unbiased.
+   *Weakness:* n-labels crowd the axis at the extremes - poster polish deferred.
+
+Deferred to poster / README stage: hexbin version of (1), a map of one demo
+stand with its k-NN donor stands, and per-fold spatial-CV maps.
 
 ---
 

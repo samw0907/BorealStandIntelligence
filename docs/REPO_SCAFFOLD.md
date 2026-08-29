@@ -375,6 +375,14 @@ A module is done when every item below exists in its output directory.
 - Performance on stale-label stands versus clean stands, expressed in m³/ha
 - Explicit statement of which attributes are estimable and which are not
 - A working demonstration: arbitrary polygon in, estimates out
+- Figure set (`figures/`), see docs/MODULE_A_NOTES.md A6c for the rationale of each:
+  1. `obs_pred_vol_total.png` - estimate vs register scatter, ABA and k-NN, 1:1
+  2. `attribute_tiers.png` - R2 per attribute, coloured by estimable tier
+  3. `spectral_lift.png` - ALS-only vs ALS + Sentinel-2 R2 per attribute
+  4. `msnfi_agreement.png` - r with MS-NFI 2023: register vs our estimate
+  5. `error_by_volclass.png` - volume bias by stand size (regression to the mean)
+  (deferred to poster stage: hexbin obs/pred, a demo stand with its k-NN donors,
+  per-fold spatial-CV maps)
 
 ### P1 module C — bark beetle
 - C1: logistic regression coefficient table with confidence intervals

@@ -493,6 +493,94 @@ def build_module_a_report(
     }
 
 
+def fit_production_models(frame: pd.DataFrame, cfg: dict, *,
+                          features: list[str], targets: list[str] | None = None) -> dict:
+    """Fit the ABA and k-NN models on the whole established-stand frame.
+
+    Returned bundle: per-target sqrt-OLS fits, a per-stratum NearestNeighbors
+    index over z-scored features, the donor table, and the feature scaling.
+    Used by `estimate_polygon` for the draw-a-polygon demo.
+    """
+    import statsmodels.api as sm
+    from sklearn.neighbors import NearestNeighbors
+
+    targets = targets or TARGETS
+    strat = cfg["module_a_stand_estimation"]["knn"]["stratify_by"]
+    mu = frame[features].mean()
+    sd = frame[features].std().replace(0.0, 1.0)
+
+    aba = {}
+    for t in targets:
+        x = sm.add_constant(frame[features], has_constant="add")
+        fit = sm.OLS(np.sqrt(frame[t].to_numpy()), x).fit()
+        aba[t] = {"params": fit.params.to_dict(), "mse_resid": float(fit.mse_resid)}
+
+    knn_index = {}
+    for s, g in frame.groupby(strat):
+        nn = NearestNeighbors(n_neighbors=min(10, len(g)))
+        nn.fit(((g[features] - mu) / sd).to_numpy())
+        knn_index[s] = (nn, g["standid"].to_numpy(), g[targets].to_numpy())
+
+    return {"features": features, "targets": targets, "mu": mu, "sd": sd,
+            "aba": aba, "knn_index": knn_index, "stratify_by": strat,
+            "donors": frame[["standid", strat] + targets].reset_index(drop=True)}
+
+
+def stand_feature_row(geom, cells_df: pd.DataFrame, s2_tif: str | Path) -> dict:
+    """Feature vector for one polygon: median ALS cell metrics inside it plus
+    median Sentinel-2 band reflectance and the three indices."""
+    import geopandas as gpd
+    import rasterio
+    from rasterio.mask import mask as rio_mask
+
+    pts = gpd.GeoDataFrame(
+        cells_df,
+        geometry=gpd.points_from_xy(cells_df["cx"] + _GRID / 2, cells_df["cy"] + _GRID / 2),
+        crs="EPSG:3067",
+    )
+    inside = pts[pts.within(geom)]
+    row = {c: float(inside[c].median()) for c in ALS_FEATURES}
+    row["n_cells"] = int(len(inside))
+
+    with rasterio.open(s2_tif) as src:
+        names = list(src.descriptions)
+        clipped, _ = rio_mask(src, [geom], crop=True, filled=True, nodata=np.nan)
+    for bi, name in enumerate(names):
+        band = clipped[bi]
+        row[f"s2_{name}"] = float(np.nanmedian(band))
+    row["s2_ndvi"] = (row["s2_nir"] - row["s2_red"]) / (row["s2_nir"] + row["s2_red"])
+    row["s2_ndre"] = (row["s2_nir"] - row["s2_rededge1"]) / (row["s2_nir"] + row["s2_rededge1"])
+    row["s2_ndmi"] = (row["s2_nir"] - row["s2_swir16"]) / (row["s2_nir"] + row["s2_swir16"])
+    return row
+
+
+def estimate_polygon(geom, bundle: dict, cells_df: pd.DataFrame, s2_tif: str | Path,
+                     *, soil_main_type: str = "mineral", k: int = 5) -> dict:
+    """Draw-a-polygon estimate: attribute vector from ABA and from k-NN, plus the
+    real donor stands k-NN used (ids and inverse-distance weights)."""
+    feats = bundle["features"]
+    row = stand_feature_row(geom, cells_df, s2_tif)
+    xv = np.array([row[f] for f in feats], dtype="float64")
+
+    aba = {}
+    for t, m in bundle["aba"].items():
+        p = m["params"]
+        lin = p.get("const", 0.0) + sum(p[f] * row[f] for f in feats)
+        aba[t] = max(0.0, max(0.0, lin) ** 2 + m["mse_resid"])
+
+    strat = soil_main_type if soil_main_type in bundle["knn_index"] else next(iter(bundle["knn_index"]))
+    nn, ids, yv = bundle["knn_index"][strat]
+    kk = min(k, len(ids))
+    xz = ((xv - bundle["mu"].to_numpy()) / bundle["sd"].to_numpy()).reshape(1, -1)
+    dist, idx = nn.kneighbors(xz, n_neighbors=kk)
+    w = 1.0 / np.power(dist[0] + 1e-6, 1.0)
+    w /= w.sum()
+    knn = {t: float(v) for t, v in zip(bundle["targets"], (w @ yv[idx[0]]))}
+    donors = [{"standid": int(ids[i]), "weight": round(float(wi), 3)}
+              for i, wi in zip(idx[0], w)]
+    return {"n_cells": row["n_cells"], "aba": aba, "knn": knn, "knn_donors": donors}
+
+
 def run_module_a(
     cfg: dict,
     *,
@@ -597,16 +685,67 @@ def run_module_a(
         fetch_dates=fetch_dates, caveats=caveats,
     )
 
+    # draw-a-polygon demo: 3 stands across the volume range, fit leave-those-out
+    # so both methods are genuinely out-of-sample (k-NN cannot retrieve itself)
+    from src.figures import (module_a_attribute_tiers, module_a_error_by_volclass,
+                             module_a_msnfi_agreement, module_a_obs_pred,
+                             module_a_spectral_lift)
+
+    cells_df = pd.read_csv(als_metrics_csv)
+    demo_targets = ["vol_total", "vol_pine", "vol_spruce", "meanheight",
+                    "meandiameter", "basalarea", "meanage"]
+    fs = frame.sort_values("vol_total").reset_index(drop=True)
+    pick_ids = [int(fs.iloc[int(q * (len(fs) - 1))]["standid"]) for q in (0.15, 0.5, 0.9)]
+    dtr = frame[~frame["standid"].isin(pick_ids)].reset_index(drop=True)
+    bundle = fit_production_models(dtr, cfg, features=ABA_PREDICTORS + s2cols,
+                                   targets=demo_targets)
+    demo = []
+    for sid in pick_ids:
+        p = frame[frame["standid"] == sid].iloc[0]
+        e = estimate_polygon(p.geometry, bundle, cells_df, s2_tif,
+                             soil_main_type=p["soil_main_type"])
+        demo.append({
+            "standid": sid, "soil_main_type": p["soil_main_type"],
+            "n_als_cells": e["n_cells"],
+            "recorded": {t: round(float(p[t]), 1) for t in demo_targets},
+            "aba": {t: round(v, 1) for t, v in e["aba"].items()},
+            "knn": {t: round(v, 1) for t, v in e["knn"].items()},
+            "knn_donors": e["knn_donors"],
+        })
+    report["draw_a_polygon_demo"] = demo
+
     (out_dir / "report.json").write_text(json.dumps(report, indent=2, default=str),
                                          encoding="utf-8")
     summary.to_csv(out_dir / "tables" / "attribute_summary.csv", index=False)
     res_s2["metrics"].round(4).to_csv(out_dir / "tables" / "cv_metrics_als_s2.csv", index=False)
     res_als["metrics"].round(4).to_csv(out_dir / "tables" / "cv_metrics_als_only.csv", index=False)
+    res_s2["predictions"].to_csv(out_dir / "tables" / "cv_predictions.csv", index=False)
+    agree = pd.DataFrame([
+        {"attribute": r["attribute"], "n": r["n"],
+         "r_register_vs_msnfi": r["register_vs_msnfi"]["r"],
+         "r_estimate_vs_msnfi": r["estimate_vs_msnfi"]["r"],
+         "rmse_register_vs_msnfi": r["register_vs_msnfi"]["rmse"],
+         "rmse_estimate_vs_msnfi": r["estimate_vs_msnfi"]["rmse"]}
+        for r in msnfi_rows])
+    agree.to_csv(out_dir / "tables" / "msnfi_agreement.csv", index=False)
     for name in ("a4b_vol_total_by_volclass.csv", "a4b_vol_total_by_species.csv",
                  "a5c_msnfi_benchmark.csv"):
         src = Path("outputs/tables") / name
         if src.exists():
             shutil.copy(src, out_dir / "tables" / name)
+
+    (out_dir / "figures").mkdir(exist_ok=True)
+    module_a_obs_pred(out_dir / "tables" / "cv_predictions.csv", "vol_total",
+                      out_dir / "figures" / "obs_pred_vol_total.png")
+    module_a_attribute_tiers(out_dir / "tables" / "attribute_summary.csv",
+                             out_dir / "figures" / "attribute_tiers.png")
+    module_a_spectral_lift(out_dir / "tables" / "cv_metrics_als_only.csv",
+                           out_dir / "tables" / "cv_metrics_als_s2.csv",
+                           out_dir / "figures" / "spectral_lift.png")
+    module_a_msnfi_agreement(out_dir / "tables" / "msnfi_agreement.csv",
+                             out_dir / "figures" / "msnfi_agreement.png")
+    module_a_error_by_volclass(out_dir / "tables" / "a4b_vol_total_by_volclass.csv",
+                               out_dir / "figures" / "error_by_volclass.png")
     return report
 
 
