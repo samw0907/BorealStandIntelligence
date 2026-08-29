@@ -152,24 +152,21 @@ def compute_change_surfaces(pre_tif, post_tif, out_dir, *, forestmask_gpkg=None)
 # ---------------------------------------------------------------------------
 
 def zonal_mean(gdf: gpd.GeoDataFrame, change_tif: str | Path):
-    """Mean of `change_tif` per feature, via rasterised feature ids + groupby.
+    """Mean and valid-pixel count of `change_tif` per feature, in gdf order.
 
-    Pixels are assigned to the feature whose polygon contains the pixel centroid
-    (rasterio default). Returns (mean array, valid-pixel-count array) in gdf order.
+    Each feature is scored independently (correct where polygons overlap - which
+    declaration polygons do). Pixels are included when their centroid falls in the
+    polygon (all_touched=False). NaN is excluded from both the mean and the count.
     """
-    gdf = gdf.reset_index(drop=True)
+    from rasterstats import zonal_stats
+
     with rasterio.open(change_tif) as src:
         arr = src.read(1)
-        transform, (h, w) = src.transform, src.shape
-    shapes = ((geom, i + 1) for i, geom in enumerate(gdf.geometry) if geom is not None)
-    ids = rasterize(shapes, out_shape=(h, w), transform=transform, fill=0, dtype="int32")
-    fid, val = ids.ravel(), arr.ravel()
-    keep = (fid > 0) & np.isfinite(val)
-    grp = pd.DataFrame({"fid": fid[keep], "v": val[keep]}).groupby("fid")["v"].agg(["mean", "count"])
-    means = np.full(len(gdf), np.nan, dtype="float32")
-    counts = np.zeros(len(gdf), dtype="int32")
-    means[grp.index.values - 1] = grp["mean"].values
-    counts[grp.index.values - 1] = grp["count"].values
+        transform = src.transform
+    stats = zonal_stats(list(gdf.geometry), arr, affine=transform,
+                        stats=["mean", "count"], nodata=np.nan, all_touched=False)
+    means = np.array([s["mean"] if s["mean"] is not None else np.nan for s in stats], dtype="float32")
+    counts = np.array([s["count"] for s in stats], dtype="int32")
     return means, counts
 
 
@@ -354,3 +351,142 @@ def run_b5(declarations_gpkg, stands_gpkg, change_tif, out_dir, cfg: dict) -> di
     (out_dir / "b5_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return {"sweep_csv": str(out_dir / "tables" / "threshold_sweep.csv"),
             "summary": summary, "frame": frame, "sweep": sweep}
+
+
+# ---------------------------------------------------------------------------
+# B6 - deliverables: inventory_stale flag, mismatch sets, harvest map, report
+# ---------------------------------------------------------------------------
+
+def _load_stands(stands_gpkg):
+    g = gpd.read_file(stands_gpkg, columns=[
+        "standid", "area", "maintreespecies", "developmentclass",
+        "measurementdate", "treestanddatasource", "volume", "geometry"])
+    if g.crs is None or g.crs.to_epsg() != 3067:
+        g = g.to_crs(3067)
+    g["measurementdate"] = pd.to_datetime(g["measurementdate"], errors="coerce", utc=True)
+    return g
+
+
+def flag_inventory_stale(stands_gpkg, change_tif, cfg, *, regen_threshold, post_end="2024-06-01"):
+    """Per-stand `inventory_stale`: a detected canopy loss postdating the last inventory scan.
+
+    inventory_stale = zonal dNBR over the stand exceeds the regeneration threshold
+    AND the stand's measurementdate is before the post composite. Such a stand's
+    attributes were measured before the cut, so they are modelled, not observed -
+    Module A must handle it separately.
+    """
+    g = _load_stands(stands_gpkg).reset_index(drop=True)
+    g["dnbr"], g["npix"] = zonal_mean(g, change_tif)
+    post = pd.Timestamp(post_end, tz="UTC")
+    detected = g["dnbr"] > regen_threshold
+    pre_scan = g["measurementdate"] < post
+    g["inventory_stale"] = (detected & pre_scan).fillna(False)
+    g["stale_reason"] = np.where(
+        g["inventory_stale"], "detected canopy loss postdates measurementdate", "")
+    return g[["standid", "area", "measurementdate", "treestanddatasource",
+              "dnbr", "npix", "inventory_stale", "stale_reason", "geometry"]]
+
+
+def mismatch_sets(stands_gpkg, declarations_gpkg, change_tif, cfg, *, regen_threshold):
+    """declared-but-not-detected and detected-but-not-declared, over the full AOI.
+
+    Unit is the stand polygon. A stand is 'declared' if a scored declaration in the
+    full-register window overlaps it; 'detected' if its zonal dNBR exceeds the
+    regeneration threshold. Returns two GeoDataFrames plus counts/areas.
+    """
+    b = cfg["module_b_harvest_detection"]
+    min_area = float(b["min_stand_area_ha"])
+    gt = b["ground_truth"]["full_register_arrival"]
+
+    stands = _load_stands(stands_gpkg)
+    stands = stands[stands["area"] >= min_area].reset_index(drop=True)
+    stands["dnbr"], stands["npix"] = zonal_mean(stands, change_tif)
+    stands = stands[stands["npix"] >= int(b["min_valid_pixels"])].copy()
+    stands["detected"] = stands["dnbr"] > regen_threshold
+
+    decl = _load_declarations(declarations_gpkg)
+    decl = decl[decl["arrival"].between(
+        pd.Timestamp(gt["start"], tz="UTC"), pd.Timestamp(gt["end"], tz="UTC"), inclusive="left")
+        & decl["felling_class"].isin(list(b["felling_types_scored"]))]
+    # a stand's declaration class = the strongest overlapping (regeneration > salvage > thinning)
+    order = {"thinning": 1, "salvage": 2, "regeneration": 3}
+    j = gpd.sjoin(stands[["standid", "geometry"]], decl[["felling_class", "geometry"]],
+                  how="inner", predicate="intersects")
+    j["rank"] = j["felling_class"].map(order)
+    best = (j.sort_values("rank").drop_duplicates("standid", keep="last")[["standid", "felling_class"]]
+            .rename(columns={"felling_class": "declared_class"}))
+    stands = stands.merge(best, on="standid", how="left")
+    stands["declared"] = stands["declared_class"].notna()
+
+    dnd = stands[stands["declared"] & ~stands["detected"]]        # declared, not detected
+    dtn = stands[stands["detected"] & ~stands["declared"]]        # detected, not declared
+
+    def _summ(sub, by=None):
+        out = {"n": int(len(sub)), "area_ha": round(float(sub["area"].sum()), 1)}
+        if by is not None and len(sub):
+            out["by_" + by] = {k: {"n": int(v), "area_ha": round(float(sub.loc[sub[by] == k, "area"].sum()), 1)}
+                               for k, v in sub[by].value_counts().items()}
+        return out
+
+    return {
+        "declared_not_detected": dnd, "detected_not_declared": dtn,
+        "n_stands_scored": int(len(stands)),
+        "declared_not_detected_summary": _summ(dnd, "declared_class"),
+        "detected_not_declared_summary": _summ(dtn),
+        "detected_total": int(stands["detected"].sum()),
+        "declared_total": int(stands["declared"].sum()),
+    }
+
+
+def write_module_b_report(out_dir, *, b5_summary, mismatch, cfg, fetch_dates,
+                          inventory_stale_summary=None):
+    """report.json (headline numbers) + run_metadata.json for Module B."""
+    from fi_forest_data.io import run_metadata
+
+    out_dir = Path(out_dir)
+    b = cfg["module_b_harvest_detection"]
+    area_rec = b5_summary.get("area_class_recall_regeneration", {})
+    # minimum reliably detectable clearcut size = smallest class with recall >= 0.75
+    min_size = None
+    for k, v in area_rec.items():
+        if v.get("recall") is not None and v["recall"] >= 0.75:
+            min_size = k
+            break
+
+    report = {
+        "module": "B_harvest_detection",
+        "change_metric": b["change_metric"],
+        "per_type_calibration": b5_summary["per_type"],
+        "cohort_note": b5_summary["note"],
+        "register_vs_executed_recall": {
+            "regeneration_full_register":
+                b5_summary["per_type"]["regeneration"]["max_f1"]["full_register"]["recall"],
+            "regeneration_executed_in_window":
+                b5_summary["per_type"]["regeneration"]["max_f1"]["executed_in_window"]["recall"],
+        },
+        "area_class_recall_regeneration": area_rec,
+        "minimum_reliably_detectable_clearcut": min_size,
+        "thinning": "not reliably detectable with two-epoch optical dNBR (see MODULE_B_NOTES.md 4.2)",
+        "salvage": "partial only; see MODULE_B_NOTES.md 4.3",
+        "declared_not_detected_full_register": {
+            **mismatch["declared_not_detected_summary"],
+            "meaning": ("stands with a felling permit on file 2019-2024 that the 2021->2024 change "
+                        "surface does not confirm as cut. Dominated by undetectable thinnings and "
+                        "permits exercised outside the observation window. NOT a count of missed "
+                        "detections - the missed-detection figure is 1 - recall on the "
+                        "executed-in-window cohort (regeneration ~21%)."),
+        },
+        "detected_not_declared": {
+            **mismatch["detected_not_declared_summary"],
+            "meaning": ("stands showing strong canopy loss with no felling permit 2019-2024: "
+                        "undeclared cutting, natural disturbance, or noise. Small - undeclared "
+                        "cutting appears rare."),
+        },
+        "stands_scored": mismatch["n_stands_scored"],
+        "inventory_stale": inventory_stale_summary,
+        "created": date.today().isoformat(),
+    }
+    (out_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    (out_dir / "run_metadata.json").write_text(
+        json.dumps(run_metadata(cfg, fetch_dates), indent=2), encoding="utf-8")
+    return report

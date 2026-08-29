@@ -56,6 +56,9 @@ Fixed. See config/aoi_southeast.yaml.
 - `docs/DATA_SOURCES.md` — endpoints, schemas, field mappings
 - `docs/REPO_SCAFFOLD.md` — module contracts, config schema, acceptance criteria
 - `docs/TASK_00_DISCOVERY.md` — the discovery task that verifies DATA_SOURCES.md
+- `docs/TASK_00_FINDINGS.md` — discovery findings, deviations, decisions
+- `docs/MODULE_*_NOTES.md` — running rationale + results per module, source
+  material for the README. Keep current as each module is built.
 - `fi_forest_data/` — data access layer (fetch, cache, reproject; no analysis)
 - `src/` — analysis modules, letter-prefixed to match the project plan
 
