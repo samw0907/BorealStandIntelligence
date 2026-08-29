@@ -30,11 +30,17 @@ sentinel1:
 
 module_b_harvest_detection:
   change_metric: dnbr                 # dnbr | dndmi | s1_logratio | combined
-  threshold_sweep: {min: 0.05, max: 0.60, step: 0.01}
-  zonal_stat: mean
-  pixel_mode: centroid
+  threshold_sweep: {min: 0.0, max: 0.60, step: 0.02}   # dNBR: ~0 = noise, ~0.1 thinning, ~0.3+ clearcut
+  zonal_stat: mean                   # per-declaration zonal statistic of the change surface
+  pixel_mode: centroid               # count pixels whose centroid falls in the polygon
+  min_valid_pixels: 5                # declarations with fewer valid change pixels are dropped
   min_stand_area_ha: 0.5
   felling_types_scored: [regeneration, thinning, salvage]
+  # a declaration is a permit, not a record of execution or its date. Two cohorts:
+  ground_truth:
+    full_register_arrival: {start: "2019-01-01", end: "2024-06-01"}      # register as-is
+    executed_in_window_arrival: {start: "2021-07-01", end: "2023-06-01"} # filed in time to be cut before the post image
+  negative_control_n: 20000          # random non-declared stands, for the false-positive rate
 
 module_a_stand_estimation:
   method: [aba_regression, knn_imputation]
