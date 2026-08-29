@@ -144,16 +144,23 @@ EPSG:3067 bbox: <bbox>
 Keep this small and stable. Both projects depend on it, so changes ripple.
 
 ```python
-# fi_forest_data/aoi.py
+# fi_forest_data/aoi.py  (as built in Module B0)
+@dataclass(frozen=True)
 class AOI:
     name: str
     bbox_3067: tuple[float, float, float, float]
     crs: str = "EPSG:3067"
+    description: str = ""
 
-    def to_polygon(self) -> shapely.Polygon: ...
-    def mapsheet_tiles(self) -> list[str]: ...     # NLS TM35FIN tiles for DTW / DEM / ALS
-    def verify_coverage(self, sources: list[str]) -> dict: ...
+    @classmethod
+    def from_yaml(cls, path) -> "AOI": ...
+    def to_polygon(self) -> shapely.Polygon: ...      # EPSG:3067 rectangle
+    def bbox_wgs84(self) -> tuple[float, float, float, float]: ...  # for STAC / FMI
+    def area_km2(self) -> float: ...
 ```
+
+Map-sheet tiling (DTW / DEM / ALS) is resolved inside each fetch function using
+that product's own tile index, not on AOI — kept as pure geometry.
 
 ```python
 # fi_forest_data/metsakeskus.py
@@ -182,9 +189,13 @@ def stations_near(aoi: AOI, max_distance_km: float) -> pd.DataFrame: ...
 ```
 
 ```python
-# fi_forest_data/io.py
-def write_cog(array, profile, path: str, attribution: str) -> None: ...
-def run_metadata(config: dict, fetch_dates: dict) -> dict: ...
+# fi_forest_data/io.py  (as built in Module B0)
+ATTRIBUTION: dict[str, str]                       # per-source CC BY 4.0 strings
+def attribution_for(sources: list[str]) -> str: ...
+def run_id(when=None) -> str: ...                 # {YYYYMMDD}_{HHMMSS}_{git_sha}
+def write_cog(array, profile, path, attribution, *, nodata=None,
+              overview_resampling="nearest") -> None: ...   # driver="COG", deflate
+def run_metadata(config: dict, fetch_dates: dict, *, aoi_bbox=None) -> dict: ...
 ```
 
 Rules for this package:
@@ -201,7 +212,7 @@ Everything parameterised. No magic numbers in module code.
 
 ```yaml
 # boreal-stand-intelligence/config/pipeline.yaml
-aoi: config/aoi_southeast.yaml
+aoi: aoi_southeast.yaml   # relative to this config file
 
 sentinel2:
   source: cdse                        # cdse | gee
@@ -260,7 +271,7 @@ module_c_beetle:
 
 ```yaml
 # regenerative-harvest-planning/config/pipeline.yaml
-aoi: config/aoi_central.yaml
+aoi: aoi_central.yaml   # relative to this config file
 
 module_d1_dtw_derive:
   validation_catchment_bbox_3067: [414920, 6945300, 429010, 6964880]  # TASK 00: SYKE FI1-14.06.161, 148 km2

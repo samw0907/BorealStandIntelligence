@@ -3,7 +3,7 @@
 # in module code. fi_forest_data/validate.py checks this against a schema in CI:
 # a missing or out-of-range parameter fails the build rather than defaulting.
 
-aoi: config/aoi_southeast.yaml
+aoi: aoi_southeast.yaml   # resolved relative to this config file's directory
 
 sentinel2:
   source: cdse                        # cdse | gee
