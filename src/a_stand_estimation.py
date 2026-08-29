@@ -440,6 +440,27 @@ def add_spectral_features(frame, s2_tif: str | Path):
     return out
 
 
+def msnfi_stand_medians(frame, msnfi_tif: str | Path, *,
+                        nodata_values=(32766, 32767), scale: float = 1.0):
+    """Per-stand median of an MS-NFI theme raster, nodata codes masked out.
+
+    Returns a float Series aligned to frame.index (NaN where a stand has no valid
+    MS-NFI pixel). `scale` converts raster units (e.g. mean height is decimetres,
+    so scale=0.1).
+    """
+    import rasterio
+    from rasterstats import zonal_stats
+
+    with rasterio.open(msnfi_tif) as src:
+        band = src.read(1).astype("float64")
+        transform = src.transform
+    band[np.isin(band, list(nodata_values))] = np.nan
+    zs = zonal_stats(list(frame.geometry), band, affine=transform,
+                     stats=["median"], nodata=float("nan"))
+    return pd.Series([(z["median"] * scale) if z["median"] is not None else np.nan
+                      for z in zs], index=frame.index, dtype="float64")
+
+
 def add_official_laser_metrics(frame, gridcell_gpkg: str | Path):
     """Attach Metsakeskus's own LASERHEIGHT / LASERDENSITY (per-stand median).
 

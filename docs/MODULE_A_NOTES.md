@@ -351,16 +351,74 @@ to 0.89 and removes the low-end bias. **Resolved as decision 2.6-7: gate Module 
 to established stands.** The gated-domain result tables are the A4b/A4c/A5a
 section above; this section keeps the datasource-4/5 split as the evidence.
 
-### A5c-A6
-Benchmark vs MS-NFI 2023 (`fetch_msnfi`, not yet implemented); performance on
-Module B's `inventory_stale` stands; estimable-attribute summary; draw-a-polygon
-demo; report.json.
+### A5c - MS-NFI 2023 benchmark (done)
+
+`fi_forest_data/luke.fetch_msnfi(theme, aoi)` implemented: windows a whole-Finland
+MS-NFI 2023 theme GeoTIFF (Funet mirror, `{theme}_vmi1x_1923.tif`, UInt16, 16 m,
+EPSG:3067) to the subset via `/vsicurl` and caches a COG. Nodata 32766 / 32767
+kept distinct, both masked for analysis. Themes pulled: `tilavuus` (total
+volume), `manty`, `kuusi`, `keskipituus` (dm), `ppa`, `keskilapimitta`, `ika`.
+`src.a_stand_estimation.msnfi_stand_medians` gives the per-stand zonal median.
+
+Triangulation on the 3,480 established stands - how well each of (a) the
+Metsakeskus stand register and (b) our out-of-fold CV estimates agree with the
+**independent** MS-NFI product (`outputs/tables/a5c_msnfi_benchmark.csv`):
+
+| attribute | register vs MS-NFI | our best estimate vs MS-NFI |
+|-----------|--------------------|-----------------------------|
+| total volume | r 0.73, RMSE 65 | r 0.77, RMSE 57 |
+| pine volume | r 0.70, RMSE 54 | r 0.74, RMSE 41 |
+| spruce volume | r 0.75, RMSE 52 | r 0.79, RMSE 40 |
+| mean height | r 0.73, RMSE 3.1 m | r 0.77, RMSE 2.7 m |
+| basal area | r 0.65, RMSE 5.2 | r 0.71, RMSE 4.6 |
+| mean diameter | r 0.73, RMSE 4.3 cm | r 0.77, RMSE 3.7 cm |
+| mean age | r 0.68, RMSE 13 yr | r 0.73, RMSE 12 yr |
+
+**Our open-data reconstruction agrees with MS-NFI as well as the official stand
+register does - marginally better on every attribute.** That is the headline
+validation: an independent official product places our estimates and the
+operational register at the same distance from itself. k-NN edges ABA here (it
+was the other way against the register) - unsurprising, MS-NFI is itself a k-NN
+product, so method affinity.
+
+**A consistent +35 to +37 m3/ha offset on total volume affects the register and
+our estimates equally**, so it is an MS-NFI property, not our error: MS-NFI k-NN
+on a coarse 16 m satellite grid saturates and regresses high volumes toward the
+mean, and a raster zonal median over a stand also dilutes with small gaps that
+the stand polygon and the register exclude. Documented, not corrected.
+
+### A5d-A6
+Performance on Module B's `inventory_stale` stands (needs ALS/S2 outside the
+subset - assess feasibility); estimable-attribute summary; draw-a-polygon demo;
+report.json.
 
 ---
 
 ## 4. Results and what they mean
 
-(filled in as A4-A6 complete)
+(A6 adds the estimable-attribute summary and the demo; the numbers so far)
+
+- **The open-data + published-method pipeline reproduces operational ALS stand
+  estimation.** On established stands (3,480, epoch-matched 2023) with ALS + a
+  2023 Sentinel-2 composite: total volume RMSE 25 m3/ha (13 %, R2 0.89), mean
+  height RMSE 1.0 m (R2 0.94), mean diameter RMSE 1.6 cm (R2 0.91), basal area
+  R2 0.78, age R2 0.87. These match the accuracy Metsakeskus reports for its own
+  ALS product.
+- **ALS carries structure, optical carries species.** ALS alone gets volume /
+  height / diameter; adding the S2 bands roughly doubles per-species volume R2
+  (spruce 0.20 -> 0.56, pine 0.38 -> 0.57). Per-species volume stays the weakest
+  output (R2 ~0.6) - the known limit of passive optical for conifer separation.
+- **Not circular.** Our ALS metrics reproduce Metsakeskus's own (h_p90 vs
+  LASERHEIGHT r 0.99); adding the official metrics changes R2 by <= 0.03. An
+  independent product (MS-NFI 2023) sits as close to our estimates as to the
+  operational register.
+- **The transparent model is enough.** sqrt-OLS matches or beats k-NN on every
+  structural attribute on the clean domain; k-NN is kept only for the
+  physically-consistent attribute vector it gives the polygon demo.
+- **What it cannot do:** estimate regeneration / seedling stands (gated out, no
+  growing stock), or beat ~13 % volume RMSE from open inputs - Metsa's closed
+  harvester-outturn calibration loop is the missing half and is not reproducible
+  from open data.
 
 ---
 
@@ -370,5 +428,12 @@ demo; report.json.
 - The subset is one 144 km2 window in one AOI - single-subset result.
 - Open 0.5 p ALS height percentiles run ~1-3 m below the 5 p latvusmalli (crown-apex
   under-sampling); A4 models absorb this as a linear offset against measured plots.
-- `als_cell_metrics` can emit NaN `canopy_cover` for a cell with points but no
-  first returns (2 of 282,033 cells) - add a guard in A4.
+- `als_cell_metrics` NaN `canopy_cover` (points but no first returns, 2 of
+  282,033 cells) - guarded in A4 (`fillna(0)`).
+- Per-species volume targets are `total x stand species proportion`, not measured
+  per-species volumes (the stand layer has none) - the split is partly
+  definitional.
+- MS-NFI benchmark carries a consistent +35-37 m3/ha volume offset (affects the
+  register equally; an MS-NFI saturation / zonal-median property, not our error).
+- `inventory_stale` performance (A5d) needs ALS + S2 outside the 81 km2 subset;
+  feasibility to be assessed before committing to it.
