@@ -67,8 +67,11 @@ and `docker-compose.yml` give a reproducible run; CI runs flake8, config
 validation and pytest.
 
 ## Status
-Scaffolding complete (repo structure, config placeholders, empty module stubs).
-No module work started. Next task: TASK 00 discovery, which verifies
-`docs/DATA_SOURCES.md` against the live services and resolves its TO VERIFY
-markers. Do not write module code that depends on a TO VERIFY item until it is
-resolved.
+Scaffolding complete. **TASK 00 discovery complete (2026-08-29)** —
+`docs/DATA_SOURCES.md` verified against the live services, `docs/TASK_00_FINDINGS.md`
+records the deviations and open decisions. `config/pipeline.yaml` needed no changes.
+Next: **Module B** (harvest detection). Then A, then C.
+
+Open decisions to settle at the right time (TASK_00_FINDINGS.md): D1 ALS vintage
+(open ALS over this AOI is 2009–2015 only) — decide before Module A. The SE AOI is
+mixed pine–spruce (spruce ~28%), not spruce-dominant; no method impact.

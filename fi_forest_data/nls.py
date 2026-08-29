@@ -11,7 +11,13 @@ Public interface (planned):
     fetch_als(aoi, subset=None) -> list[str]     # LAZ tile paths
     fetch_topographic(theme, aoi) -> gpd.GeoDataFrame
 
-No implementation yet — scaffold only. Download mechanism, whether an OmaTili API
-key is required, and the tiling scheme are TO VERIFY in docs/DATA_SOURCES.md and
-are resolved by TASK 00.
+Routes confirmed in TASK 00 (docs/DATA_SOURCES.md section 4): the Funet mirror
+https://www.nic.funet.fi/index/geodata/mml/ (no API key; the official NLS OGC API
+needs one and is avoided). dem2m/2008_latest/{block}/{sub}/{tile}.tif (2 m,
+Float32, nodata -9999); laserkeilaus/2008_latest/ LAZ tiles + national index
+shapefile 2008_latest.shp; maastotietokanta/2025/ per-mapsheet-block dirs for
+hydrography and roads. NB: open ALS over the Project 1 SE AOI is 2009-2015 only
+(~1.6 pts/m2); see Decision D1 in docs/TASK_00_FINDINGS.md.
+
+No implementation yet — scaffold only.
 """

@@ -9,6 +9,12 @@ Public interface (planned):
     fetch_daily(station_id, start, end, variables) -> pd.DataFrame
     stations_near(aoi, max_distance_km) -> pd.DataFrame
 
-No implementation yet — scaffold only. WFS stored query names and parameter
-syntax are TO VERIFY in docs/DATA_SOURCES.md and are resolved by TASK 00.
+Route confirmed in TASK 00 (docs/DATA_SOURCES.md section 5): open WFS
+https://opendata.fmi.fi/wfs, stored query
+fmi::observations::weather::daily::simple (default params rrday, tday, snow, tmin,
+tmax). Query by fmisid + starttime/endtime; the request span is capped at ~1 year,
+so page by year. Project 2 long-record station: fmisid 101537 (Viitasaari
+Haapaniemi, daily from 1970).
+
+No implementation yet — scaffold only.
 """

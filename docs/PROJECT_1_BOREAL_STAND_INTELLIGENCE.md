@@ -62,7 +62,7 @@ One data backbone, and they are causally chained:
   prerequisite for using the rest honestly.
 - **B feeds C.** Salvage felling is recorded in the declaration system — the same
   response variable used in published Finnish bark beetle work.
-- **A feeds C.** Spruce dominance, maturity and height are exactly the
+- **A feeds C.** Spruce share, maturity and height are exactly the
   susceptibility covariates the literature uses.
 
 Build order: **B → A → C.**
@@ -77,11 +77,21 @@ Puumala – Ruokolahti – southern Savonlinna. FIXED EXTENT:
 - WGS84 bbox: `[28.00, 61.15, 29.05, 61.78]`
 - 57 x 71 km, ~4,047 km² (similar scale to Prey Lang)
 
-Rationale: spruce-dominant private forest of exactly the type Metsä buys from
-members; the documented Finnish Ips typographus concentration, with Ruokolahti a
+Rationale: mixed pine–spruce private forest of exactly the type Metsä buys from
+members (TASK 00: pine 49% / spruce 28% / deciduous 23% by volume — the original
+"spruce-dominant" framing was wrong, but the ~28% spruce component is ample for
+Module C); the documented Finnish Ips typographus concentration, with Ruokolahti a
 long-term monitoring site (2010 storm, outbreak from ~2014); dense harvesting so
-the declaration layer is well populated; best Sentinel-2 cloud statistics in
-Finland; 2020–2025 laser scanning round complete, so scan dates are known.
+the declaration layer is well populated (~176k declarations in the AOI, current to
+the day); best Sentinel-2 cloud statistics in Finland.
+
+**Scan-date caveat (TASK 00).** Metsäkeskus stand attributes carry usable
+inventory dates (`measurementdate` ≈ 2023, `treestanddatasource`). But the *open
+ALS* over this AOI is **2009–2015 only** (best coverage 2015) — the 2020+ 0.5p
+national programme has not reached SE Finland. So Module A works with an ~8-year
+gap between the ALS and the reference labels. Decision D1 in
+`docs/TASK_00_FINDINGS.md` covers how to frame or resolve this before Module A.
+Actual open ALS density here is ~1.6 pts/m², not 0.5.
 
 FIRST TASK, before any bulk download: verify at feature/pixel level that the AOI
 has current stand data with usable scan dates, sufficient declaration density, and
@@ -148,8 +158,9 @@ polygon, return the attributes an offer needs.
 **ALS metrics (area-based approach).** Height-normalise the 0.5 p point cloud
 against the NLS 2 m DTM, then per 16 m cell compute height percentiles
 (P25/P50/P75/P90/P95), mean and max height, canopy cover as the proportion of
-returns above 2 m, and return density. A 16 m cell at 0.5 p/m² holds roughly 128
-points — enough for percentile metrics, not for crown delineation, and the
+returns above 2 m, and return density. TASK 00 measured the open ALS over this AOI
+at **~1.6 pts/m²** (2009–2015 campaigns), so a 16 m cell holds roughly 400 points
+— comfortably enough for percentile metrics, not for crown delineation, and the
 documentation should say exactly that. Tuominen et al. 2014 estimated volume,
 species-specific volumes, mean diameter and mean height from ALS at 0.54 p/m², so
 this density is a published working point rather than a gamble.

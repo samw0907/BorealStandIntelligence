@@ -11,6 +11,13 @@ Public interface (planned):
     fetch_layer(layer_key, aoi, version) -> gpd.GeoDataFrame
     fetch_raster(layer_key, aoi, version) -> str  # path to COG
 
-No implementation yet — scaffold only. Several layer schemas are TO VERIFY in
-docs/DATA_SOURCES.md and are resolved by TASK 00 before this module is written.
+Routes confirmed in TASK 00 (see docs/DATA_SOURCES.md section 1): WFS 2.0.0 for
+vectors (stand, habitat, gridcell, forestusedeclaration, forestmask; GeoJSON
+output, paging, EPSG:3067 native); WCS 2.0.1 for a subset of rasters
+(Korjuukelpoisuus, DTW 1/4 ha, D8, FA, Virtausverkko, RUSLE); the
+https://avoin.metsakeskus.fi/aineistot/ bulk file tree for the rest (CHM 1 m,
+Kemera subsidy sites) and for full-AOI GeoPackage pulls. Coded values decode via
+the KOOD V35 workbook.
+
+No implementation yet — scaffold only.
 """

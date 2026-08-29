@@ -151,7 +151,7 @@ class AOI:
     crs: str = "EPSG:3067"
 
     def to_polygon(self) -> shapely.Polygon: ...
-    def utm200_sheets(self) -> list[str]: ...      # for MS-NFI sheet selection
+    def mapsheet_tiles(self) -> list[str]: ...     # NLS TM35FIN tiles for DTW / DEM / ALS
     def verify_coverage(self, sources: list[str]) -> dict: ...
 ```
 
@@ -263,17 +263,19 @@ module_c_beetle:
 aoi: config/aoi_central.yaml
 
 module_d1_dtw_derive:
-  validation_catchment_bbox_3067: [null, null, null, null]   # set in TASK 00
+  validation_catchment_bbox_3067: [414920, 6945300, 429010, 6964880]  # TASK 00: SYKE FI1-14.06.161, 148 km2
+  reference_product: dtw_2023_cmv2                                     # TASK 00: newer DEM, peatland-improved
+  reference_unit: cm                                                   # 2023 DTW is centimetres (2019 was mm)
   dem_resolution_m: 2
   culvert_burn: true
   pit_removal: carve
   flow_algorithm: dinf
-  channel_thresholds_ha: [0.5, 1.0, 4.0, 10.0]
+  channel_thresholds_ha: [0.5, 1.0, 2.0, 4.0, 10.0]                   # TASK 00: 2023 CMv2 adds 2 ha
 
 module_d2_dtw_extend:
   weather_term:
     enabled: true
-    fmi_station_id: null              # set in TASK 00
+    fmi_station_id: 101537           # TASK 00: Viitasaari Haapaniemi, daily from 1970
     antecedent_precip_days: [7, 14, 30]
     snowmelt_detection: snow_depth_delta
     interpolate_between_thresholds: true
