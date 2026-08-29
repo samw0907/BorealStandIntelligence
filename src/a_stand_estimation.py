@@ -259,35 +259,44 @@ ABA_PREDICTORS = ["h_p90", "h_p50", "h_p25", "canopy_cover", "density"]
 def assign_cv_folds(df: pd.DataFrame, cfg: dict) -> pd.Series:
     """Assign each stand to one of n_folds folds by whole 2 km blocks.
 
-    Blocks are ordered on a boustrophedon (snake) path through the grid so each
-    fold is a spatially coherent group, then split into n_folds contiguous runs.
+    Blocks are ordered on a boustrophedon (snake) path through the grid so a fold
+    is a spatially coherent group, then cut into n_folds runs of roughly equal
+    stand count (not equal block count - blocks vary widely in how many stands
+    they hold).
     """
     n_folds = int(cfg["module_a_stand_estimation"]["cv"]["n_folds"])
+    counts = df.groupby("block_id").size()
     parts = df["block_id"].str.split("_", expand=True).astype("int64")
-    blocks = (parts.drop_duplicates().sort_values([0, 1]).reset_index(drop=True))
-    xs = sorted(blocks[0].unique())
+    blocks = parts.drop_duplicates().sort_values([0, 1]).reset_index(drop=True)
     order = []
-    for i, x in enumerate(xs):
+    for i, x in enumerate(sorted(blocks[0].unique())):
         col = blocks[blocks[0] == x].sort_values(1, ascending=(i % 2 == 0))
-        order.extend((int(r[0]), int(r[1])) for r in col.to_numpy())
-    fold_of = {}
-    for f, grp in enumerate(np.array_split(np.array(order, dtype=object), n_folds)):
-        for bx, by in grp:
-            fold_of[f"{bx}_{by}"] = f
+        order.extend(f"{int(r[0])}_{int(r[1])}" for r in col.to_numpy())
+
+    total, fold_of, cum, f = len(df), {}, 0, 0
+    for bid in order:
+        fold_of[bid] = f
+        cum += int(counts[bid])
+        if f < n_folds - 1 and cum >= total * (f + 1) / n_folds:
+            f += 1
     return df["block_id"].map(fold_of).astype("int64")
 
 
 def _aba_predict(train: pd.DataFrame, test: pd.DataFrame, target: str,
                  predictors: list[str]) -> np.ndarray:
-    """OLS on log1p(target) ~ predictors, Duan smearing back-transform."""
+    """OLS on sqrt(target) ~ predictors.
+
+    Back-transformed as E[y] = mu^2 + Var(resid) (the retransformation-bias
+    correction for a squared prediction). sqrt is variance-stabilising for
+    volume and handles zero-volume stands natively - no smearing pathology.
+    """
     import statsmodels.api as sm
 
     xtr = sm.add_constant(train[predictors], has_constant="add")
-    fit = sm.OLS(np.log1p(train[target].to_numpy()), xtr).fit()
+    fit = sm.OLS(np.sqrt(train[target].to_numpy()), xtr).fit()
     xte = sm.add_constant(test[predictors], has_constant="add")
-    lin = fit.predict(xte).to_numpy()
-    smear = float(np.mean(np.exp(fit.resid)))
-    return np.clip(np.exp(lin) * smear - 1.0, 0.0, None)
+    mu = np.clip(fit.predict(xte).to_numpy(), 0.0, None)
+    return mu ** 2 + float(fit.mse_resid)
 
 
 def _knn_predict(train: pd.DataFrame, test: pd.DataFrame, targets: list[str],
