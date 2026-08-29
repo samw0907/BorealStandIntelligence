@@ -120,3 +120,59 @@ def als_cell_metrics(
     out["density"] = out["n"] / (_GRID * _GRID)
     out = out[out["n"] >= min_pts].reset_index(drop=True)
     return out
+
+
+# ---------------------------------------------------------------------------
+# A3 - latvusmalli (canopy height model) benchmark
+# ---------------------------------------------------------------------------
+
+CHM_UUSIN_URL = ("https://avoin.metsakeskus.fi/aineistot/Latvusmalli/Karttalehti/"
+                 "uusin/CHM_{sheet}_uusin.tif")
+
+
+def chm_cell_stats(chm_sources: list[str], bbox_3067, *, grid: int = _GRID) -> pd.DataFrame:
+    """Aggregate the 1 m latvusmalli CHM to the 16 m grid over the bbox.
+
+    chm_sources: local paths or `/vsicurl/...` URLs to CHM map-sheet GeoTIFFs.
+    Returns cx, cy, chm_mean, chm_p90, chm_max, chm_cover (fraction of 1 m pixels
+    above 2 m) per 16 m cell.
+    """
+    minx, miny, maxx, maxy = bbox_3067
+    acc: dict[tuple[int, int], list[np.ndarray]] = {}
+    for src in chm_sources:
+        with rasterio.open(src) as ds:
+            win = ds.window(minx, miny, maxx, maxy)
+            arr = ds.read(1, window=win, boundless=True, fill_value=np.nan).astype("float32")
+            wt = ds.window_transform(win)
+            nod = ds.nodata
+        if nod is not None:
+            arr[arr == nod] = np.nan
+        rows, cols = arr.shape
+        # world coords of each pixel centre
+        jj, ii = np.meshgrid(np.arange(cols), np.arange(rows))
+        xw = wt.c + (jj + 0.5) * wt.a
+        yw = wt.f + (ii + 0.5) * wt.e
+        cx = (np.floor(xw / grid) * grid).astype("int64")
+        cy = (np.floor(yw / grid) * grid).astype("int64")
+        inb = (xw >= minx) & (xw < maxx) & (yw >= miny) & (yw < maxy) & np.isfinite(arr)
+        for k, v in _group_pixels(cx[inb], cy[inb], arr[inb]):
+            acc.setdefault(k, []).append(v)
+
+    rows_out = []
+    for (kx, ky), chunks in acc.items():
+        v = np.concatenate(chunks)
+        rows_out.append({
+            "cx": kx, "cy": ky, "chm_n": v.size,
+            "chm_mean": float(np.mean(v)), "chm_p90": float(np.percentile(v, 90)),
+            "chm_max": float(np.max(v)), "chm_cover": float((v > 2.0).mean()),
+        })
+    return pd.DataFrame(rows_out)
+
+
+def _group_pixels(cx: np.ndarray, cy: np.ndarray, val: np.ndarray):
+    key = cx.astype("int64") * 10_000_000 + cy
+    order = np.argsort(key, kind="stable")
+    key, cx, cy, val = key[order], cx[order], cy[order], val[order]
+    bounds = np.flatnonzero(np.diff(key)) + 1
+    for a, b in zip(np.r_[0, bounds], np.r_[bounds, key.size]):
+        yield (int(cx[a]), int(cy[a])), val[a:b]

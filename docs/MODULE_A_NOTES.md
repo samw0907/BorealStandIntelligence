@@ -114,9 +114,47 @@ operational k-NN structure).
   median 17.8 m, canopy cover median 0.70, h_p90 median 13.1 m - all plausible
   for managed boreal forest.
 
-### A3 - CHM benchmark (next)
-Fetch the latvusmalli 1 m CHM; compare our ALS canopy metrics to it ("what does
-the paid 5 p buy").
+### A3 - latvusmalli CHM benchmark (done)
+
+The DERIVE AND BENCHMARK check for canopy height: does the open 0.5 p ALS
+reproduce the canopy-height structure that Metsakeskus's official latvusmalli
+product carries? The latvusmalli is a 1 m canopy height model built from the
+full-density (5 p) national ALS - so this is also the concrete "what does the
+paid 5 p buy over the open 0.5 p" answer.
+
+- **Fetch** (`src.a_stand_estimation.chm_cell_stats`): 6 latvusmalli map sheets
+  (utm10, 6 km) cover the 81 km2 subset - `M5322B/D/F`, `M5411A/C/E`. Downloaded
+  whole from `avoin.metsakeskus.fi/.../CHM_{sheet}_uusin.tif` (~70 MB each, ~40 s
+  total) then aggregated locally; windowed `/vsicurl` reads on these non-COG 1 m
+  tiles were far too slow. Aggregated to the same 16 m grid: `chm_mean`,
+  `chm_p90`, `chm_max`, `chm_cover` (fraction of 1 m pixels > 2 m) per cell,
+  256 pixels per full cell, 316,969 cells.
+- **Compared** on the 282,033 cells shared with the A2 ALS metrics:
+
+  | pair | r | bias (CHM - ALS) | RMSE | medians (ALS / CHM) |
+  |------|-----|-----|-----|-----|
+  | p90 height  | 0.980 | +2.97 m | 3.37 m | 13.1 / 16.5 m |
+  | max height  | 0.981 | +1.07 m | 1.82 m | 17.8 / 18.8 m |
+  | mean height | 0.965 | +5.26 m | 6.07 m | 5.7 / 11.4 m |
+  | canopy cover| 0.785 | +0.18   | 0.28   | 0.70 / 0.95 |
+
+**What it means.** Height percentiles from the open 0.5 p ALS track the official
+5 p canopy model almost perfectly in shape (r ~ 0.98). The paid product buys a
+small, systematic height correction, not new structure: our sparse cloud
+under-samples crown apices, so our percentiles sit a little low - the gap is
+smallest at `h_max` (+1.1 m) and grows for lower percentiles. That downward bias
+is a known, correctable property of thinned ALS and does not threaten the volume
+models in A4, which calibrate against measured plots and absorb a linear offset.
+
+Two comparisons are not like-for-like and are recorded only for completeness:
+`mean height` (ours is the mean of all returns including ground; the latvusmalli
+is a canopy *surface*), and `canopy cover` (the latvusmalli is a filled,
+interpolated surface - its cover saturates near 1.0, median 0.95 - so our
+first-return cover, median 0.70, is the better gap-fraction metric, and it is the
+one A4 will use). Two ALS cells had `n >= 30` but zero first returns, giving NaN
+`canopy_cover`; harmless here (dropped from the correlation), guard added in A4.
+
+Output: `data/raw/nls/chm_cell_stats_e_ruokolahti.csv`.
 
 ### A4-A6
 ABA regression + k-NN imputation, spatially-blocked CV; RMSE/bias by species and
@@ -135,3 +173,7 @@ Module B's `inventory_stale` stands; estimable attributes; draw-a-polygon demo.
 
 - `treestanddatasource` codes 7 and 9 not decoded (minor - excluded from reference).
 - The subset is one 144 km2 window in one AOI - single-subset result.
+- Open 0.5 p ALS height percentiles run ~1-3 m below the 5 p latvusmalli (crown-apex
+  under-sampling); A4 models absorb this as a linear offset against measured plots.
+- `als_cell_metrics` can emit NaN `canopy_cover` for a cell with points but no
+  first returns (2 of 282,033 cells) - add a guard in A4.
