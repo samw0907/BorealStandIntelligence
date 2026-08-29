@@ -215,18 +215,20 @@ DEM, matches the 2023 inventory round, peatland-improved), thresholds
 - **Funet/CSC mirror** `https://www.nic.funet.fi/index/geodata/mml/` — CC BY 4.0,
   **no key**. Carries the 2 m DEM, the topographic database, and the **2008–2019
   legacy laser round**. Use for DEM and hydrography.
-- **NLS official OGC API** `https://avoin-paikkatieto.maanmittauslaitos.fi/` —
-  returns **HTTP 401 without an API key**. The key is **free** (email registration
-  at the NLS site, no strong identification — the data is open CC BY 4.0). Needed
-  for the **2020+ laser scanning 0.5 p** product, which the mirror does not carry.
-  Sam registers the key when Module A starts; it is supplied to the pipeline as an
-  environment variable / `.env` and is **never committed** (`.gitignore` covers
-  `.env` and `config/.env`). Do not read, write, or commit it.
+- **NLS file download service** — OGC API Processes at
+  `https://avoin-paikkatieto.maanmittauslaitos.fi/tiedostopalvelu/ogcproc/v1/`
+  ("Paikkatiedon tiedostopalvelu"). Needs a **free** NLS open-data API key
+  (register at omatili.maanmittauslaitos.fi; open CC BY 4.0 data, no strong
+  identification). Used for the **2020+ laser scanning 0.5 p** product, which the
+  Funet mirror does not carry. Key = `NLS_API_KEY` in `config/.env` (gitignored,
+  never committed or logged; loaded by `fi_forest_data/config.py`). The
+  `/lidar/ogcproc/` path is wrong — the extraction process lives under
+  `tiedostopalvelu/ogcproc/v1/processes`.
 
 | Product | Path (mirror) | Spec | Tier | Used by |
 |---|---|---|---|---|
 | **2 m elevation model** | mirror `dem2m/2008_latest/{block}/{sub}/{tile}.tif` | 3 km tiles, 2 m, EPSG:3067, Float32, nodata −9999; `.tif.aux.xml` sidecars | DERIVE input | P2 D, P2 E |
-| **ALS 0.5 p (2020+ national programme)** | NLS OGC API (`avoin-paikkatieto…/lidar/…`), **free key** | LAZ, EPSG:3067; 0.5 p/m² (thinned from 5 p) | DERIVE input | **P1 A** |
+| **ALS 0.5 p (2020+ national programme)** | NLS file service `tiedostopalvelu/ogcproc/v1/`, **free key** | LAZ, EPSG:3067; ~0.5 p/m² (thinned from 5 p) | DERIVE input | **P1 A** |
 | ALS legacy round (2008–2019) | mirror `laserkeilaus/2008_latest/…` + index shapefile `2008_latest.shp` | LAZ, LAS 1.0–1.2, EPSG:3067, 3 km tiles; measured ~1.6 p/m² in the SE area | fallback only | — |
 | Topographic database | mirror `maastotietokanta/2025/{shp,gpkg}/` + per-mapsheet-block dirs; themes `MTK-virtavesi` (streams), `MTK-vakavesi` (lakes), `MTK-tie` (roads), `MTK-suo` (mires) | national GPKGs 3–19 GB — use the per-block dirs | FETCH | P2 D, P2 E |
 | Laser scanning 5 p | — | **LICENSED AND PAID — DO NOT ATTEMPT** | — | — |

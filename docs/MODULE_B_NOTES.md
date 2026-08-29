@@ -220,7 +220,29 @@ stats scored per polygon (overlap-safe). `report.json` in the run folder.
 
 ---
 
-## 5. Caveats and open items
+## 5. Self-assessment (for the README's "limitations" framing)
+
+- **Methodology (7/10).** Clean, reproducible, standard operational pipeline;
+  radiometric offset handled properly; the register-vs-executed cohort split is a
+  strong design choice; negative results reported honestly. But this is the
+  simplest form of the method - two epochs, not a dense time series as Metsakeskus
+  runs - the executed-in-window cohort is a temporal heuristic not validated
+  against real cut dates, and precision is an estimate from a scaled negative
+  control, not a measured count.
+- **Link to Metsa (8/10).** Faithful rebuild of a recognisable operational
+  workflow on the real datasets, official felling codes decoded from the standard,
+  `inventory_stale` targets a documented Metsa pain point. It is by design the
+  open-data skeleton of a more sophisticated real system (AI + harvester feedback).
+- **Analysability of the outputs (6.5/10).** Numbers are stable and the two
+  calibrations converge, so the clearcut result is trustworthy. The ground truth
+  is imperfect (permits are not verified cuts), the executed cohort is unvalidated
+  against cut dates, no confidence intervals are reported, and salvage (n=168) is
+  noisy. Defensible with the caveats stated.
+
+The strong, reliable core is clearcut detection. Thinning and salvage are honest
+negatives. The register-vs-executed insight is the distinctive contribution.
+
+## 6. Caveats and open items
 
 - **Legacy declaration codes.** `CUTTINGREALIZATIONPRACTICE` has values 13 and 19
   (used in older declarations) not in the current standard code list. The felling-
