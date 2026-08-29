@@ -432,3 +432,22 @@ def add_spectral_features(frame, s2_tif: str | Path):
     out["s2_ndre"] = _nd("nir", "rededge1")
     out["s2_ndmi"] = _nd("nir", "swir16")
     return out
+
+
+def add_official_laser_metrics(frame, gridcell_gpkg: str | Path):
+    """Attach Metsakeskus's own LASERHEIGHT / LASERDENSITY (per-stand median).
+
+    These are the ALS metrics the operational grid-cell estimation itself used.
+    Adding them to the feature set is the circularity probe (A5b): if the CV
+    barely moves, our independent ALS metrics already carry the same structural
+    signal and the result is not inflated by feeding the official inputs back in.
+    """
+    import geopandas as gpd
+
+    out = frame.copy()
+    gc = gpd.read_file(gridcell_gpkg, columns=["LASERHEIGHT", "LASERDENSITY", "geometry"])
+    gc = gc.to_crs(out.crs)
+    gc["geometry"] = gc.geometry.centroid
+    j = gpd.sjoin(gc, out[["standid", "geometry"]], predicate="within", how="inner")
+    agg = j.groupby("standid")[["LASERHEIGHT", "LASERDENSITY"]].median()
+    return out.set_index("standid").join(agg, how="left").reset_index()

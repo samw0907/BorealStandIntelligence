@@ -320,11 +320,66 @@ division of labour and matches the operational stack: ALS for structure, optical
 for species. ALS + S2 is the Module A production feature set (decision 2.6-6);
 ALS-only is kept as the ablation.
 
-### A5b-A6
-Circularity check (with / without MS-NFI-style features, datasource-5 stands
-reported separately); benchmark vs MS-NFI 2023; performance on Module B's
-`inventory_stale` stands; estimable-attribute summary; draw-a-polygon demo;
-report.json.
+### A5b - circularity probe and the model domain (done; one decision pending)
+
+**Circularity probe (`outputs/tables/a5b_circularity_probe.csv`).** Two parts:
+
+- Our open-data ALS metrics reproduce Metsakeskus's own operational ALS metrics
+  almost exactly: `h_p90` vs `LASERHEIGHT` r = 0.993, `h_p75` r = 0.976,
+  `density` vs `LASERDENSITY` r = 0.898. We rebuilt the same structural signal
+  from open inputs.
+- Adding the official `LASERHEIGHT` / `LASERDENSITY` to the feature set changes
+  CV R2 by only +0.00 to +0.03 across all targets. Our independent features
+  already carry the signal - the result is **not** inflated by feeding the
+  operational inputs back in.
+
+The residual circularity (the reference attributes are themselves ALS-model
+outputs, not field measurement) is inherent to open data and cannot be removed;
+the MS-NFI 2023 benchmark (A5c) is the second, more independent reference.
+
+**Datasource 4 vs 5, and the discovery.** Splitting the out-of-fold predictions
+by `treestanddatasource`:
+
+| group | n | vol_total RMSE | vol_total R2 |
+|-------|---|------|------|
+| datasource 4 (interpreted) | 3,761 | 31 m3/ha | 0.87 |
+| datasource 5 ("laser") | 405 | 125 m3/ha | strongly negative |
+
+Datasource 5 is not a quality problem - those 405 stands are almost all
+**regeneration / seedling** stands (development class T1 / T2 / A0, volume
+median 0 m3/ha, height median 1.2 m). A near-treeless stand still returns some
+ALS + optical signal, which the model - trained overwhelmingly on established
+forest - maps to a non-zero volume, so relative error explodes. These stands are
+also most of the "0-50 m3/ha over-predicted +44" tail seen in A4c.
+
+**Established stands only (drop dev class A0 / T1 / T2, n 4,166 -> 3,480), ALS+S2:**
+
+| target | ABA (sqrt) RMSE / R2 | k-NN k=5 RMSE / R2 |
+|--------|------|------|
+| vol_total | 25.0 m3/ha (13%) / 0.89 | 28.8 / 0.86 |
+| meanheight | 1.04 m (6%) / 0.94 | 1.44 / 0.88 |
+| meandiameter | 1.58 cm (8%) / 0.91 | 2.05 / 0.85 |
+| basalarea | 2.71 m2/ha (12%) / 0.78 | 2.70 / 0.78 |
+| meanage | 6.0 yr / 0.87 | 7.1 / 0.82 |
+| vol_pine | 42.8 (52%) / 0.57 | 40.4 / 0.62 |
+| vol_spruce | 43.9 (55%) / 0.56 | 42.3 / 0.59 |
+
+These are operational-grade (stand volume ~13 % RMSE is in the range Metsakeskus
+reports for its own ALS product). The pooled A4/A5a numbers were being halved by
+the 686 seedling stands. On the clean established-forest domain the transparent
+**sqrt-OLS clearly beats k-NN** for the structural attributes; k-NN keeps a small
+edge only on per-species volume.
+
+**Decision pending (Sam): gate Module A to established stands** - exclude
+development classes A0 / T1 / T2 from the reference and modelling set, state the
+model domain explicitly. A regeneration stand has no growing stock to estimate
+and is identified (Module B, or dev class, or `h_p90 < ~5 m`), not estimated -
+which is how an operational tool treats bare ground too.
+
+### A5c-A6
+Benchmark vs MS-NFI 2023 (`fetch_msnfi`, not yet implemented); performance on
+Module B's `inventory_stale` stands; estimable-attribute summary; draw-a-polygon
+demo; report.json.
 
 ---
 
