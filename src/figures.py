@@ -173,6 +173,41 @@ def module_c1_pr_curve(pr_csv, out_path, *, average_precision=None,
     return _save(fig, out_path)
 
 
+def module_c2_days_early(detections_csv, out_path, *, index_name="NDRE") -> str:
+    """Histogram of (salvage date - detection date) for detected damaged stands."""
+    df = pd.read_csv(detections_csv)
+    d = df[(df["group"] == "damaged") & df["detected"] & df["days_early"].notna()]
+    fig, ax = plt.subplots(figsize=(6.2, 3.8))
+    if len(d):
+        ax.hist(d["days_early"], bins=range(-180, 780, 90),
+                color="#1f4e79", edgecolor="white")
+    ax.axvline(0, color="k", lw=1.2, ls="--")
+    ax.text(0, ax.get_ylim()[1] * 0.92, " declared salvage date", fontsize=8, va="top")
+    ax.set_xlabel(f"days between {index_name} stress detection and the salvage "
+                  "declaration (positive = detected earlier)")
+    ax.set_ylabel("damaged stands")
+    ax.set_title(f"Module C2 - {index_name} lead time (n={len(d)} detected)")
+    return _save(fig, out_path)
+
+
+def module_c2_rates(rates_csv, out_path) -> str:
+    """Detection rate on damaged vs false-alarm rate on control, per index."""
+    df = pd.read_csv(rates_csv)
+    x = np.arange(len(df))
+    fig, ax = plt.subplots(figsize=(5.6, 3.8))
+    ax.bar(x - 0.2, df["detection_rate_damaged"], 0.38, label="damaged stands detected",
+           color="#b5651d")
+    ax.bar(x + 0.2, df["false_alarm_rate_control"], 0.38,
+           label="control stands flagged (false alarm)", color="#9ecae1")
+    ax.set_xticks(x)
+    ax.set_xticklabels(df["index"])
+    ax.set_ylabel("rate")
+    ax.set_ylim(0, 1)
+    ax.set_title("Module C2 - sensitivity vs false alarms")
+    ax.legend(fontsize=8)
+    return _save(fig, out_path)
+
+
 def module_a_error_by_volclass(volclass_csv, out_path) -> str:
     """Bias (mean estimate - register) by observed volume class, ABA and k-NN."""
     df = pd.read_csv(volclass_csv)

@@ -149,28 +149,65 @@ from open landscape data - a useful ranking, not a precise map, exactly as the
 plan's "known-hard-problem" framing anticipated. Figures: `c1_coefficients.png`,
 `c1_pr_curve.png`.
 
-### C2 - next
-Per-stand Sentinel-2 NDRE / NDMI trajectories over spruce stands, departure from
-each stand's own baseline, detection date vs declared salvage date as a
-days-early distribution.
+### C2 - Sentinel-2 canopy stress detection (done)
+
+Restricted to a **~600 km2 damage hotspot** in the SW of the AOI (the Module A
+81 km2 subset holds only 7 beetle-salvage stands; the hotspot holds ~80). **44
+damaged** spruce stands (>= 50 % spruce, beetle / insect salvage 2021-2024, with
+declaration dates) plus **300 control** spruce stands.
+
+- **`fetch_s2_stand_indices`**: monthly (May-Sep) Sentinel-2 median composites,
+  2019-2024, per-stand median NDRE and NDMI. **Standard `sentinel-2-l2a`**, not
+  the Collection 1 product Modules A/B use - Collection 1 has a coverage gap over
+  this area in 2022 (0 usable scenes; l2a has 9-17). The baseline-04.00 BOA
+  offset is applied by acquisition year so the whole series is one scale.
+  ~27 min, 28 of 30 months returned (9,632 stand-months).
+- **`c2_detect`**: per-stand, per-calendar-month baseline from 2019-2020; the
+  first month with z <= -2 whose next month is also below, within
+  [salvage - 18 mo, salvage + 6 mo]. Controls get a pseudo salvage date sampled
+  from the damaged distribution, so their false-alarm rate is over a comparable
+  window.
+
+| detector | damaged detected | control false-alarm | days-early (median, n) |
+|----------|------------------|---------------------|------------------------|
+| NDRE | 0.11 (5/44) | 0.06 | +445 d, n 5 (all before) |
+| NDMI | 0.39 (17/44) | 0.12 | -27 d, n 17 (41 % before) |
+| NDRE and NDMI | 0.02 | 0.02 | +243 d, n 1 |
+
+**What it means.** This is the "known-hard-problem" result the plan calls for,
+with real numbers:
+- **NDRE** (the red-edge index Prey Lang flagged as the biochemical-state signal)
+  gives a genuine **~1 year lead** - but only for ~1 in 9 damaged stands, and the
+  same departure appears in 6 % of healthy control stands, so a detection is only
+  ~2x enriched for true damage.
+- **NDMI** is more sensitive (~40 %) but fires **around or after** the salvage
+  declaration (median 27 days late) with double the false alarms - no lead time.
+- Requiring both indices kills sensitivity (1 stand).
+- The salvage declaration date already lags visible mortality by weeks to months,
+  so "no lead versus the declaration" means "no lead versus visible mortality" -
+  exactly the conclusion of the 26-study critical review the README leads with.
+
+Figures: `c2_days_early.png`, `c2_rates.png`. Report: `run_module_c2` ->
+`outputs/p1/module_c2/{run_id}/report.json`.
 
 ---
 
 ## 4. Results and what they mean
 
-- **Where beetle / insect-damage salvage occurs is explained by three landscape
-  properties, not by stand character:** proximity to the previous (2012-2018)
-  outbreak (OR 0.32 per SD - contagious spread, the strongest), neighbourhood
-  spruce share (OR 1.58 - host abundance), and nearby fresh clearcut edge
-  (OR 1.30 - the sun effect). Stand age and site fertility are null at 500 m
-  scale.
-- **The model is useful for ranking, not for finding.** Blocked-CV average
-  precision ~0.09 vs 0.028 prevalence: the top-ranked areas are several times
-  enriched for damage at low recall, but precision falls to the base rate by
-  ~50 % recall. A transparent equal-weight index matches the logistic model.
-- **This is the expected result** and it is stated as such: bark beetle risk
-  mapping from open landscape data is a real but limited signal; the deliverable
-  is the ranked driver list and an honest performance number, not a precise map.
+- **C1 - susceptibility:** where beetle / insect-damage salvage occurs is driven
+  by three landscape properties, in order: proximity to the previous outbreak
+  (OR 0.32 per SD - contagious spread), neighbourhood spruce share (OR 1.58),
+  nearby fresh clearcut edge (OR 1.30). Stand age and site fertility add nothing
+  at 500 m scale. Blocked-CV average precision ~0.09 vs 0.028 random - a useful
+  ranking, not a precise map.
+- **C2 - stress detection:** Sentinel-2 gives a marginal early-warning signal.
+  NDRE offers ~1 year of lead time for the minority of stands it catches
+  (11 %, false alarm 6 %); NDMI is more sensitive but has no lead time. Early
+  detection from open optical data is not operationally reliable here, which
+  matches the published critical review.
+- **Together:** Module C is an honest treatment of a hard problem - a transparent
+  driver model and a measured, unembellished early-detection result. The value
+  is the method and the honesty, not a headline accuracy number.
 
 ---
 
@@ -178,13 +215,13 @@ days-early distribution.
 
 - Beetle / insect label leans on declaration coding; 1602-only sensitivity check
   pending.
-- Background points are "available spruce landscape", not confirmed undamaged.
-- Predictors from MS-NFI 2023 for events spanning 2019-2024 - landscape spruce
-  content changes slowly, but the mismatch is noted.
-- Only 170 cases in the 2019-2024 window - adequate for 5 predictors, not large.
-- `age` point estimate has an unexpected sign at 500 m scale (not significant).
-- Background = available spruce forest, not confirmed undamaged (SDM assumption).
-- MS-NFI 2023 predictors vs a 2019-2024 target; buffered mean limits the mismatch.
-- Climate is not a C1 predictor (AOI too small for spatial weather variation);
+- C1: only 170 cases in the 2019-2024 window - adequate for 5 predictors, not large.
+- C1: `age` point estimate has an unexpected sign at 500 m scale (not significant).
+- C1: background = available spruce forest, not confirmed undamaged (SDM assumption).
+- C1: MS-NFI 2023 predictors vs a 2019-2024 target; buffered mean limits the mismatch.
+- C1: climate is not a predictor (AOI too small for spatial weather variation);
   `fmi.py` `fetch_daily` works but `stations_near` is finished in Project 2.
-- 1602-only label sensitivity check still pending.
+- C2: 44 damaged stands in the hotspot - small; baseline is only 2019-2020.
+- C2: uses sentinel-2-l2a (not Collection 1) due to the 2022 gap; BOA offset by year.
+- C2: the salvage declaration date lags visible mortality, so lead time is
+  measured against a lagging reference.
