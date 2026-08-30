@@ -1,11 +1,11 @@
 # Boreal Stand Intelligence
 
-Rebuilding three of Metsä Group's published forestry data products from **open
-data only**, as a validated batch pipeline: **growing-stock estimation**
-(Module A), **harvest change detection** (Module B), and **bark-beetle
-susceptibility and stress detection** (Module C). Every method is a documented
-operational method, transparent statistics, or a deterministic rule — no black
-boxes. Project 1 of two; companion repo `regenerative-harvest-planning`.
+Rebuilding three geospatial data products used in operational Finnish forestry
+from **open data only**, as a validated batch pipeline: **growing-stock
+estimation** (Module A), **harvest change detection** (Module B), and
+**bark-beetle susceptibility and stress detection** (Module C). Every method is a
+documented operational method, transparent statistics, or a deterministic rule —
+no black boxes. Project 1 of two; companion repo `regenerative-harvest-planning`.
 
 **Area of interest:** south-east Finland (Puumala–Ruokolahti–Savonlinna),
 EPSG:3067 `[553000, 6780000, 610000, 6851000]`, 57 × 71 km, ~4,047 km², mixed
@@ -81,8 +81,9 @@ blocked 5-fold CV on 3,480 established stands in an 81 km² subset, epoch-matche
   ![Volume bias by stand size](docs/img/error_by_volclass.png)
 
 - **The transparent model is enough** — `√`-OLS matches or beats k-NN on every
-  structural attribute. The missing half is Metsä's closed harvester-outturn
-  calibration loop, which open data cannot reproduce.
+  structural attribute. The missing half is the closed harvester-outturn and
+  sawmill-measurement calibration loop that operators run, which open data
+  cannot reproduce.
 
 ---
 
@@ -184,9 +185,9 @@ baseline from 2019–20; first sustained departure ≥ 2 SD below baseline withi
 - Module B thinning detection is a resolution limit, not a tuning problem.
 - Module C1 has 170 events; C2 has 44 damaged stands and a 2019–20-only baseline.
   MS-NFI predictors (2023) slightly postdate part of the target window.
-- Metsä's operational products add closed feedback loops (harvester outturn,
-  sawmill measurement, field survey) that open data cannot reproduce — this
-  repo rebuilds the open skeleton and names the missing half.
+- Operational products add closed feedback loops (harvester outturn, sawmill
+  measurement, field survey) that open data cannot reproduce — this repo
+  rebuilds the open skeleton and names the missing half.
 
 ## Repository layout
 
