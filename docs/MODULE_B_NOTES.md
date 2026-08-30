@@ -134,17 +134,21 @@ stats scored per polygon (overlap-safe). `report.json` in the run folder.
   0.90" are both dNBR 0.06 - so the result does not hinge on the threshold choice.
 - Full-register recall is only 0.52 - see 4.4.
 
-### 4.2 Thinning - not detectable with optical change
+### 4.2 Thinning - not separable by two-date optical differencing
 
 - Precision 0.90 is first reached at dNBR 0.42, where thinning recall is 0.00.
   Max-F1 sits at dNBR 0.02 (the noise floor) with precision 0.64 - not a real
-  operating point. There is no threshold that both catches thinnings and keeps
-  false alarms low.
-- Why: a thinning removes part of the canopy. The burn ratio barely moves, and
-  what movement there is sits inside the natural year-to-year variation. There is
-  no signal to threshold.
-- This is the expected honest result. It is a genuine limitation of free two-epoch
-  optical change detection that a Metsa analyst should know about.
+  operating point. There is no dNBR threshold that both catches thinnings and
+  keeps false alarms low.
+- Why: a thinning removes part of the canopy. The burn ratio barely moves and
+  what movement there is sits inside the natural year-to-year variation of a
+  two-date difference.
+- **Scope of the claim (tightened after the external review).** This is a limit
+  of *two-date dNBR over a 3-year gap*, which is the weakest change method
+  available. A time-series break detector (LandTrendr / CCDC / BFAST) on the full
+  S2 record, or Sentinel-1 coherence loss, might recover some thinning - neither
+  was tested. So the honest statement is "not separable by the method used", not
+  "physically undetectable from open data".
 
 ### 4.3 Salvage (damage-driven felling) - partial, and expected to be
 
@@ -253,6 +257,18 @@ negatives. The register-vs-executed insight is the distinctive contribution.
   be a single stand-based sampling frame throughout.
 - **Salvage n is small** (168 executed) - all salvage numbers are statistically
   noisy.
-- **The executed-in-window filter is temporal only.** A stand-attribute cross-
-  check (declaration whose overlapping stand was re-measured afterwards with
-  post-harvest attributes) could sharpen it. Deferred.
+- **The executed-in-window filter is temporal only** and is not validated against
+  actual cut dates. The 0.83 clearcut recall is conditional on it; the
+  full-register recall (0.52) is the unconditional figure and both are now shown
+  together in the README. Deferred: a stand-attribute cross-check, or cut-dating
+  from a time-series detector.
+- **Method, not just resolution.** Two-date dNBR is the weakest change approach; a
+  time-series break detector and/or S1 coherence are the standard alternatives and
+  would be the single biggest strengthening of Module B (added after the external
+  review).
+- **Negative control assumes non-declared = no real change**, which is false
+  (natural disturbance, sub-threshold and unpermitted cutting). Correctly-flagged
+  change on such stands is counted as a false positive, so reported precision is a
+  lower bound; the effect on the *calibrated threshold* is untested.
+- **dNDMI computed but not scored.** Only dNBR feeds the calibration; adding
+  dNDMI and the combined metric to the scored run is a cheap next step.

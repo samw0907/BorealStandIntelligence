@@ -118,13 +118,16 @@ Recorded so the design reasoning is traceable later.
 
 4. **k-NN imputation: z-scored features, Euclidean, k in {1,3,5,7,10}, stratified
    mineral vs peat, one donor set imputes the whole attribute vector.**
-   - *Why:* this is the MS-NFI operational method (Tomppo). Standardising
-     features before Euclidean distance stops `density` and the height
-     percentiles being compared on different scales; one shared donor set per
-     target keeps the imputed attributes mutually consistent (a real stand's
-     numbers), which is k-NN's advantage over independent regressions. k = 5 is
-     the MS-NFI reference point; the sweep shows sensitivity. `sklearn`
-     `NearestNeighbors` is used only as the distance search, not as an ML model.
+   - *Why:* k-NN imputation is the family the MS-NFI operational method (Tomppo)
+     belongs to. This is a transparent implementation of it, **not** the
+     operational version - MS-NFI uses a weighted / canonical-correlation feature
+     space and often most-similar-neighbour or RF-proximity distances, where this
+     uses plain standardised Euclidean on the 5 ALS metrics + S2 bands.
+     Standardising stops `density` and the height percentiles being compared on
+     different scales; one shared donor set per target keeps the imputed
+     attributes mutually consistent, which is k-NN's advantage over independent
+     regressions. k = 5 is the MS-NFI reference point. `sklearn` `NearestNeighbors`
+     is used only as the distance search, not as an ML model.
 
 5. **Circularity is acknowledged, not eliminated.** Datasource-4 ("interpreted")
    stands already carry ALS-informed attributes, so A4 measures how well open
@@ -485,29 +488,39 @@ stand with its k-NN donor stands, and per-fold spatial-CV maps.
 
 ## 4. Results and what they mean
 
-(A6 adds the estimable-attribute summary and the demo; the numbers so far)
-
-- **The open-data + published-method pipeline reproduces operational ALS stand
-  estimation.** On established stands (3,480, epoch-matched 2023) with ALS + a
+- **The pipeline reproduces the operational ALS stand estimate from independent
+  open inputs.** On established stands (3,480, epoch-matched 2023) with ALS + a
   2023 Sentinel-2 composite: total volume RMSE 25 m3/ha (13 %, R2 0.89), mean
   height RMSE 1.0 m (R2 0.94), mean diameter RMSE 1.6 cm (R2 0.91), basal area
-  R2 0.78, age R2 0.87. These match the accuracy Metsakeskus reports for its own
-  ALS product.
-- **ALS carries structure, optical carries species.** ALS alone gets volume /
-  height / diameter; adding the S2 bands roughly doubles per-species volume R2
-  (spruce 0.20 -> 0.56, pine 0.38 -> 0.57). Per-species volume stays the weakest
-  output (R2 ~0.6) - the known limit of passive optical for conifer separation.
+  R2 0.78, age R2 0.87. **The reference is the Metsakeskus interpreted attribute,
+  itself an ALS-model output**, so this is agreement with the operational
+  estimate, not accuracy against field measurement. The magnitudes are in the
+  range Metsakeskus reports for its own product.
+- **Accuracy scales with ALS coverage** (added after the external review,
+  `accuracy_by_als_coverage.csv`): total-volume RMSE 17 m3/ha (11 %) for stands
+  with > 60 covered 16 m cells, 20 m3/ha for 30-60, 28 for 15-30, **34 for < 15**
+  (n 675). The 25 m3/ha headline is a blend; typical-sized stands do better.
+- **The blocked CV is not leaking.** Empirical semivariogram of the CV residuals
+  (`residual_semivariogram` in report.json): semivariance reaches 95 % of the
+  sill by ~250 m and is flat thereafter, well inside the 2 km CV block. R2 0.89
+  is not inflated by spatial autocorrelation between train and test.
+- **ALS carries structure, optical carries species.** Adding the S2 bands roughly
+  doubles per-species volume R2 (spruce 0.20 -> 0.56, pine 0.38 -> 0.57).
+  Per-species volume stays weakest (R2 ~0.6) - and its target is `total x stand
+  species proportion`, so it is not independently measured at all.
 - **Not circular.** Our ALS metrics reproduce Metsakeskus's own (h_p90 vs
-  LASERHEIGHT r 0.99); adding the official metrics changes R2 by <= 0.03. An
-  independent product (MS-NFI 2023) sits as close to our estimates as to the
-  operational register.
+  LASERHEIGHT r 0.99); adding the official metrics changes R2 by <= 0.03. MS-NFI
+  2023 sits as close to our estimates as to the operational register - but MS-NFI
+  shares inputs (Sentinel, NFI plots), so this is corroboration, not full
+  independence.
 - **The transparent model is enough.** sqrt-OLS matches or beats k-NN on every
-  structural attribute on the clean domain; k-NN is kept only for the
-  physically-consistent attribute vector it gives the polygon demo.
-- **What it cannot do:** estimate regeneration / seedling stands (gated out, no
-  growing stock), or beat ~13 % volume RMSE from open inputs - Metsa's closed
-  harvester-outturn calibration loop is the missing half and is not reproducible
-  from open data.
+  structural attribute; k-NN is kept only for the physically-consistent attribute
+  vector it gives the polygon demo.
+- **Scope.** This is a subset reproduction study on one 81 km2 window, one epoch.
+  It does not produce an AOI-scale surface (the three-tier "then consume the
+  official product" step is out of scope here). It cannot estimate regeneration /
+  seedling stands (gated out), nor beat ~13 % volume RMSE from open inputs - the
+  closed harvester-outturn calibration loop is the missing half.
 
 ---
 
@@ -523,6 +536,14 @@ stand with its k-NN donor stands, and per-fold spatial-CV maps.
   per-species volumes (the stand layer has none) - the split is partly
   definitional.
 - MS-NFI benchmark carries a consistent +35-37 m3/ha volume offset (affects the
-  register equally; an MS-NFI saturation / zonal-median property, not our error).
-- `inventory_stale` performance (A5d) needs ALS + S2 outside the 81 km2 subset;
-  feasibility to be assessed before committing to it.
+  register equally; likely an MS-NFI saturation / zonal-median property, not our
+  error - asserted, not decomposed against a random-stand sample).
+- The 5-metric ALS set and standardised-Euclidean k-NN are transparent baselines,
+  not the full operational method (~15-20 metrics, weighted distance). Expanding
+  the metric set is a deferred way to lift the numbers.
+- Validation is one subset selected for clean epoch-matched data - optimistic by
+  construction; a second, messier subset would bound this (not done).
+- ALS heights normalised against the NLS 2 m DEM, not a ground TIN from the cloud
+  (small bias, flat terrain).
+- `inventory_stale` performance not run for Module A (needs ALS + S2 outside the
+  subset; the three-tier rule says do not reprocess the full AOI).

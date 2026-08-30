@@ -261,11 +261,12 @@ def run_module_c2(
         idx.to_csv(out_dir / "tables" / "stand_indices.csv", index=False)
     sel_df = sel.drop(columns="geometry") if isinstance(sel, gpd.GeoDataFrame) else sel
 
-    rate_rows, summaries = [], {}
+    rate_rows, summaries, robust = [], {}, {}
     for name in ("ndre", "ndmi", "both"):
         det = c2_detect(idx, sel_df, index=name, seed=seed)
         s = c2_summary(det)
         summaries[name] = s
+        robust[name] = c2_summary_multiseed(idx, sel_df, index=name)
         rate_rows.append({"index": name.upper(),
                           "detection_rate_damaged": s["detection_rate_damaged"],
                           "false_alarm_rate_control": s["false_alarm_rate_control"]})
@@ -289,19 +290,28 @@ def run_module_c2(
         "n_damaged": int((sel_df["group"] == "damaged").sum()),
         "n_control": int((sel_df["group"] == "control").sum()),
         "detectors": summaries,
-        "headline": "NDRE gives a real ~1 year lead for the minority of stands it "
-                    "catches (detection ~0.1, false alarm ~0.06); NDMI is more "
-                    "sensitive (~0.4) but fires around or after the declaration "
-                    "date with more false alarms. Early detection is a marginal "
-                    "signal, consistent with the published critical review.",
+        "detectors_multiseed": robust,
+        "headline": "Early detection is a marginal signal, consistent with the "
+                    "published critical review. NDRE occasionally leads visible "
+                    "mortality but catches only a minority of stands, and its "
+                    "detection rate is not reliably distinguishable from the "
+                    "control false-alarm rate (Fisher exact). NDMI is more "
+                    "sensitive but fires around or after the declaration date.",
         "caveats": [
-            "44 damaged spruce stands in the hotspot - small sample.",
+            "44 damaged spruce stands in the hotspot - small; the NDRE lead-time "
+            "sample is n~5, too few for a distribution, so no median is quoted.",
             "The salvage declaration date lags visible mortality by weeks to "
             "months, so 'no lead vs the declaration' means 'no lead vs visible "
             "mortality'.",
             "Sentinel-2 L2A (not the Collection 1 product Modules A/B use) "
-            "because Collection 1 has a 2022 gap here; BOA offset applied by year.",
-            "Baseline is only 2019-2020 (~5 obs per calendar month).",
+            "because Collection 1 has a 2022 gap here; the baseline-04.00 BOA "
+            "offset is applied by acquisition year (exact for May-Sep windows).",
+            "Baseline is only 2019-2020 (~2-5 obs per calendar month), so the "
+            "per-stand z-score is itself noisy - the detection threshold is "
+            "indicative, not calibrated. A longer baseline + harmonic seasonal "
+            "model is the standard alternative (deferred).",
+            "The hotspot is selected on damage density; control stands there may "
+            "be pre-symptomatic. Out-of-hotspot controls would tighten this.",
         ],
         "attribution": attribution_for(["metsakeskus", "copernicus"]),
     }
@@ -310,23 +320,54 @@ def run_module_c2(
     return report
 
 
-def c2_summary(detections: pd.DataFrame) -> dict:
-    """Detection rate, control false-alarm rate, and the days-early distribution."""
+def c2_summary(detections: pd.DataFrame, *, min_n_for_quantiles: int = 12) -> dict:
+    """Detection rate, control false-alarm rate, a Fisher exact test that the two
+    differ, and the days-early distribution (quantiles only when n is adequate)."""
+    from scipy.stats import fisher_exact
+
     dmg = detections[detections["group"] == "damaged"]
     ctl = detections[detections["group"] == "control"]
     dmg_ev = dmg[dmg["baseline_months"] > 0]
     ctl_ev = ctl[ctl["baseline_months"] > 0]
     de = dmg.loc[dmg["detected"] & dmg["days_early"].notna(), "days_early"]
+
+    table = [[int(dmg_ev["detected"].sum()), int((~dmg_ev["detected"]).sum())],
+             [int(ctl_ev["detected"].sum()), int((~ctl_ev["detected"]).sum())]]
+    fisher_p = float(fisher_exact(table, alternative="greater")[1]) if len(dmg_ev) and len(ctl_ev) else None
+
+    days_early = {"n": int(de.notna().sum()),
+                  "share_before_declaration": round(float((de > 0).mean()), 3) if len(de) else None}
+    if len(de) >= min_n_for_quantiles:
+        days_early.update(median=float(de.median()),
+                          q25=float(de.quantile(0.25)),
+                          q75=float(de.quantile(0.75)))
+    else:
+        days_early["note"] = (f"n={len(de)} < {min_n_for_quantiles}: too few for a "
+                              "lead-time distribution; qualitative only")
     return {
         "n_damaged_evaluated": int(len(dmg_ev)),
         "n_control_evaluated": int(len(ctl_ev)),
         "detection_rate_damaged": round(float(dmg_ev["detected"].mean()), 3) if len(dmg_ev) else None,
         "false_alarm_rate_control": round(float(ctl_ev["detected"].mean()), 3) if len(ctl_ev) else None,
-        "days_early": {
-            "n": int(de.notna().sum()),
-            "median": float(de.median()) if len(de) else None,
-            "q25": float(de.quantile(0.25)) if len(de) else None,
-            "q75": float(de.quantile(0.75)) if len(de) else None,
-            "share_before_declaration": round(float((de > 0).mean()), 3) if len(de) else None,
-        },
+        "fisher_p_detection_gt_falsealarm": round(fisher_p, 4) if fisher_p is not None else None,
+        "days_early": days_early,
+    }
+
+
+def c2_summary_multiseed(indices, stands, *, index="ndre", seeds=range(20), **kw):
+    """c2_summary averaged over the control pseudo-date RNG seed, with spread."""
+    rows = []
+    for s in seeds:
+        d = c2_detect(indices, stands, index=index, seed=s, **kw)
+        m = c2_summary(d)
+        rows.append((m["detection_rate_damaged"], m["false_alarm_rate_control"],
+                     m["fisher_p_detection_gt_falsealarm"]))
+    a = np.array([[x if x is not None else np.nan for x in r] for r in rows])
+    return {
+        "index": index, "n_seeds": len(rows),
+        "detection_rate_damaged": round(float(np.nanmean(a[:, 0])), 3),
+        "false_alarm_rate_control_mean": round(float(np.nanmean(a[:, 1])), 3),
+        "false_alarm_rate_control_sd": round(float(np.nanstd(a[:, 1])), 3),
+        "fisher_p_median": round(float(np.nanmedian(a[:, 2])), 4),
+        "fisher_p_significant_share": round(float(np.mean(a[:, 2] < 0.05)), 3),
     }

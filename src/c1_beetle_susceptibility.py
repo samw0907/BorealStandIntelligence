@@ -39,11 +39,17 @@ def _code(series: pd.Series) -> pd.Series:
     return series.astype("string").str.replace(r"\.0$", "", regex=True)
 
 
-def beetle_declarations(decl):
-    """Subset of a declarations GeoDataFrame that is beetle / insect-damage salvage."""
-    mask = (_code(decl["FORESTDAMAGEQUALIFIER"]).eq(BEETLE_DAMAGE_QUALIFIER)
-            | _code(decl["CUTTINGREALIZATIONPRACTICE"]).isin(INSECT_PRACTICE_CODES))
-    return decl[mask].copy()
+def beetle_declarations(decl, *, strict: bool = False):
+    """Subset of a declarations GeoDataFrame that is beetle / insect-damage salvage.
+
+    strict=True keeps only FORESTDAMAGEQUALIFIER 1602 (Ips typographus); the
+    default also accepts the generic insect-damage practice codes 22/23.
+    """
+    qual = _code(decl["FORESTDAMAGEQUALIFIER"]).eq(BEETLE_DAMAGE_QUALIFIER)
+    if strict:
+        return decl[qual].copy()
+    return decl[qual | _code(decl["CUTTINGREALIZATIONPRACTICE"]).isin(
+        INSECT_PRACTICE_CODES)].copy()
 
 
 def c1_model_frame(
@@ -159,6 +165,7 @@ def build_point_sample(
     exclude_case_radius_m: int = 300,
     block_km: int = 10,
     rng_seed: int = 0,
+    strict_label: bool = False,
 ):
     """Presence (beetle salvage) / background (available spruce forest) points.
 
@@ -175,7 +182,7 @@ def build_point_sample(
 
     all_decl = gpd.read_file(declarations_gpkg)
     all_yr = pd.to_numeric(all_decl["DECLARATIONARRIVALYEAR"], errors="coerce")
-    decl = beetle_declarations(all_decl)
+    decl = beetle_declarations(all_decl, strict=strict_label)
     yr = pd.to_numeric(decl["DECLARATIONARRIVALYEAR"], errors="coerce")
     cases = decl[(yr >= target_years[0]) & (yr <= target_years[1])].copy()
     cases["geometry"] = cases.geometry.centroid
@@ -310,6 +317,25 @@ def fit_c1_logit(sample: pd.DataFrame, predictors: list[str] | None = None):
     return res, coef_table
 
 
+def c1_collinearity(sample: pd.DataFrame, predictors: list[str] | None = None):
+    """Pearson correlation matrix and variance inflation factors for the predictors.
+
+    A VIF above ~5 means that predictor is largely explained by the others, so its
+    individual coefficient and its rank against the collinear partner are not
+    robust.
+    """
+    predictors = predictors or C1_PREDICTORS
+    z, _ = _standardise(sample, predictors)
+    corr = z.corr().round(3)
+    vif = {}
+    for c in predictors:
+        others = [o for o in predictors if o != c]
+        r2 = np.corrcoef(z[c], z[others].to_numpy() @ np.linalg.lstsq(
+            z[others].to_numpy(), z[c].to_numpy(), rcond=None)[0])[0, 1] ** 2
+        vif[c] = round(float(1.0 / max(1e-6, 1.0 - r2)), 2)
+    return {"correlation": corr, "vif": vif}
+
+
 def c1_spatial_cv(sample: pd.DataFrame, predictors: list[str] | None = None,
                   *, n_folds: int = 5, seed: int = 0):
     """Out-of-fold presence probabilities under block-held-out CV.
@@ -391,8 +417,17 @@ def run_module_c1(
     res, coef = fit_c1_logit(sample)
     cv = c1_spatial_cv(sample, seed=seed)
     pr = c1_pr_metrics(cv)
+    collin = c1_collinearity(sample)
+
+    # sensitivity: Ips typographus (1602) only, not the generic insect codes
+    strict = build_point_sample(declarations_gpkg, msnfi, aoi, rng_seed=seed,
+                                strict_label=True)
+    _, coef_strict = fit_c1_logit(strict)
 
     coef.to_csv(out_dir / "tables" / "coefficient_table.csv", index=False)
+    coef_strict.to_csv(out_dir / "tables" / "coefficient_table_1602_only.csv",
+                       index=False)
+    collin["correlation"].to_csv(out_dir / "tables" / "predictor_correlation.csv")
     sample.drop(columns="geometry").to_csv(out_dir / "tables" / "point_sample.csv",
                                            index=False)
     pr_rows = []
@@ -421,26 +456,41 @@ def run_module_c1(
         "mcfadden_pseudo_r2": round(float(res.prsquared), 3),
         "llr_p_value": float(res.llr_pvalue),
         "coefficients": coef.to_dict(orient="records"),
+        "collinearity": {
+            "vif": collin["vif"],
+            "correlation": collin["correlation"].to_dict(),
+            "note": "VIF > ~5 => that predictor is largely explained by the "
+                    "others and its individual rank is not robust",
+        },
+        "sensitivity_1602_only": {
+            "n_cases": int(strict["presence"].sum()),
+            "coefficients": coef_strict.to_dict(orient="records"),
+            "note": "Ips typographus damage-agent code only, dropping the "
+                    "generic insect-damage practice codes 22/23",
+        },
         "evaluation": {
             "scheme": "spatially-blocked CV, 10 km blocks -> 5 folds",
             "average_precision_logit": ap["logit"],
             "average_precision_additive_index": ap["index"],
-            "note": "average precision, not accuracy; prevalence "
-                    f"{pr['prevalence']} is the random baseline",
+            "note": "average precision, not accuracy; the logit barely exceeds "
+                    "the equal-weight index, so the driver ranking is read as "
+                    "'consistent with the naive index and the literature', not "
+                    f"'the model shows'; prevalence {pr['prevalence']} is random",
         },
         "driver_ranking": [r["predictor"] for r in coef.to_dict(orient="records")],
         "caveats": [
-            "173 salvage events in the 2019-2024 window; adequate for 4 "
-            "predictors but not a large sample.",
+            "173 salvage events in the 2019-2024 window; adequate for the "
+            "predictor count but not a large sample.",
             "Background points are available spruce forest, not confirmed "
-            "undamaged (standard SDM assumption).",
-            "Predictors from MS-NFI 2023; the target spans 2019-2024. The 500 m "
-            "buffer mean is dominated by surrounding forest, limiting the "
-            "salvage-pixel bias.",
+            "undamaged, and are not matched to cases on region or epoch "
+            "(standard SDM limitation).",
+            "Predictors from MS-NFI 2023; the target spans 2019-2024, so for "
+            "2020-2023 events the landscape is measured after the salvage. The "
+            "500 m buffer mean limits but does not remove this.",
+            "distance-to-prior-damage and spruce share are correlated by "
+            "construction (outbreaks recur where spruce is) - see the VIF table.",
             "Stand age enters with an unexpected sign at this landscape scale - "
             "reported, not hidden.",
-            "Climatic water balance and forest-edge density (two cited Finnish "
-            "drivers) are added in C1c.",
         ],
         "attribution": attribution_for(["metsakeskus", "luke"]),
     }

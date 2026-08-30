@@ -134,20 +134,29 @@ equal-weight additive-index baseline.
 | site_fertility | 0.96 | 0.75-1.23 | 0.74 | not significant |
 
 McFadden pseudo-R2 0.12. Blocked-CV **average precision: logistic 0.096,
-additive index 0.095, prevalence (random) 0.028** (mean of 5 seeds ~0.088 / 0.095).
+additive index 0.095, prevalence (random) 0.028**.
+
+**Robustness checks (added after the external review):**
+- **Collinearity.** All predictor VIFs < 2.4 (`spruce_share` 1.7,
+  `prior_damage_dist_km` 1.1). The review's concern that "near the last outbreak"
+  and "lots of spruce nearby" are the same variable is not borne out - their
+  correlation is only -0.32. The ranking between the top two is robust.
+- **Label sensitivity.** Refitting on *Ips typographus* only (damage code 1602,
+  dropping the generic insect-practice codes 22/23; n = 120) gives the same
+  top-3 ranking, same signs, same significance pattern
+  (`coefficient_table_1602_only.csv`).
 
 **What it means.** Where beetle / insect-damage salvage happens is driven by
 three landscape properties, in order: **proximity to the previous outbreak**
 (contagious spread - by far the strongest, matches Kaervemo et al.), **how much
 spruce is in the neighbourhood** (host abundance), and **how much fresh clearcut
 edge is nearby** (the sun effect). Stand age and site fertility add nothing once
-those are in - a genuine finding: at 500 m landscape scale the drivers are
-spatial-ecological, not stand-structural. The logistic model and a naive
-equal-weight index are neck and neck (~0.095 average precision), both about 3.5x
-the 0.028 random baseline. That is the honest ceiling for beetle risk mapping
-from open landscape data - a useful ranking, not a precise map, exactly as the
-plan's "known-hard-problem" framing anticipated. Figures: `c1_coefficients.png`,
-`c1_pr_curve.png`.
+those are in. The logistic model and a naive equal-weight index are neck and
+neck (~0.095 average precision, ~3.5x the 0.028 random baseline): the model has
+**essentially no out-of-sample skill beyond weighting the obvious things
+equally**, so the coefficient table is read as a driver *ranking* "consistent
+with the naive index and the Finnish literature", not as "the model proves".
+Figures: `c1_coefficients.png`, `c1_pr_curve.png`.
 
 ### C2 - Sentinel-2 canopy stress detection (done)
 
@@ -160,32 +169,41 @@ declaration dates) plus **300 control** spruce stands.
   2019-2024, per-stand median NDRE and NDMI. **Standard `sentinel-2-l2a`**, not
   the Collection 1 product Modules A/B use - Collection 1 has a coverage gap over
   this area in 2022 (0 usable scenes; l2a has 9-17). The baseline-04.00 BOA
-  offset is applied by acquisition year so the whole series is one scale.
+  offset is applied by acquisition year (exact for May-Sep windows: every 2019-21
+  scene is pre-offset, every 2022+ scene is post-offset).
   ~27 min, 28 of 30 months returned (9,632 stand-months).
 - **`c2_detect`**: per-stand, per-calendar-month baseline from 2019-2020; the
   first month with z <= -2 whose next month is also below, within
   [salvage - 18 mo, salvage + 6 mo]. Controls get a pseudo salvage date sampled
-  from the damaged distribution, so their false-alarm rate is over a comparable
-  window.
+  from the damaged distribution.
+- **`c2_summary`**: adds a **Fisher exact test** that the damaged detection rate
+  exceeds the control false-alarm rate, and suppresses the days-early quantiles
+  when n < 12. **`c2_summary_multiseed`**: rates averaged over 20 control-date
+  seeds with spread.
 
-| detector | damaged detected | control false-alarm | days-early (median, n) |
-|----------|------------------|---------------------|------------------------|
-| NDRE | 0.11 (5/44) | 0.06 | +445 d, n 5 (all before) |
-| NDMI | 0.39 (17/44) | 0.12 | -27 d, n 17 (41 % before) |
-| NDRE and NDMI | 0.02 | 0.02 | +243 d, n 1 |
+| detector | damaged detected | control false-alarm (20 seeds) | detection > false alarm? |
+|----------|------------------|--------------------------------|--------------------------|
+| NDRE | 0.11 (5/44) | 0.07 +/- 0.01 | **not significant** - Fisher p ~ 0.25, significant in 0 of 20 seeds |
+| NDMI | 0.39 (17/44) | 0.13 +/- 0.01 | **significant** - p ~ 0.0001, all 20 seeds |
+| NDRE and NDMI | 0.02 | 0.03 | not significant |
 
-**What it means.** This is the "known-hard-problem" result the plan calls for,
-with real numbers:
-- **NDRE** (the red-edge index Prey Lang flagged as the biochemical-state signal)
-  gives a genuine **~1 year lead** - but only for ~1 in 9 damaged stands, and the
-  same departure appears in 6 % of healthy control stands, so a detection is only
-  ~2x enriched for true damage.
-- **NDMI** is more sensitive (~40 %) but fires **around or after** the salvage
-  declaration (median 27 days late) with double the false alarms - no lead time.
-- Requiring both indices kills sensitivity (1 stand).
-- The salvage declaration date already lags visible mortality by weeks to months,
-  so "no lead versus the declaration" means "no lead versus visible mortality" -
-  exactly the conclusion of the 26-study critical review the README leads with.
+**What it means (revised after the external review).** This is the
+"known-hard-problem" result, now with significance tests:
+- **NDRE gives no usable early signal here.** Its detection rate (0.11) is *not
+  statistically distinguishable* from the rate at which the same 2-SD departure
+  appears in healthy control stands (0.07). The 5 NDRE detections that do precede
+  the declaration are too few (n = 5 < 12) to quote a lead time - the earlier
+  "+445 day median" was an artefact of a tiny sample and is withdrawn.
+- **NDMI detects damage** significantly more often than in controls (0.39 vs
+  0.13, p ~ 1e-4), but fires **around or after** the salvage declaration - a
+  "damage happened" signal, not early warning.
+- Requiring both indices kills sensitivity.
+- The declaration date already lags visible mortality, so even NDMI offers no
+  operational lead. Matches the 26-study critical review.
+- **Underlying caveat:** the 2019-2020-only baseline (~2-5 obs per calendar
+  month) makes the per-stand z-score noisy, so the threshold is indicative not
+  calibrated. A longer baseline + harmonic seasonal model is the standard
+  alternative and is deferred; the qualitative conclusion is unlikely to change.
 
 Figures: `c2_days_early.png`, `c2_rates.png`. Report: `run_module_c2` ->
 `outputs/p1/module_c2/{run_id}/report.json`.
@@ -200,22 +218,28 @@ Figures: `c2_days_early.png`, `c2_rates.png`. Report: `run_module_c2` ->
   nearby fresh clearcut edge (OR 1.30). Stand age and site fertility add nothing
   at 500 m scale. Blocked-CV average precision ~0.09 vs 0.028 random - a useful
   ranking, not a precise map.
-- **C2 - stress detection:** Sentinel-2 gives a marginal early-warning signal.
-  NDRE offers ~1 year of lead time for the minority of stands it catches
-  (11 %, false alarm 6 %); NDMI is more sensitive but has no lead time. Early
-  detection from open optical data is not operationally reliable here, which
-  matches the published critical review.
-- **Together:** Module C is an honest treatment of a hard problem - a transparent
-  driver model and a measured, unembellished early-detection result. The value
-  is the method and the honesty, not a headline accuracy number.
+- **C2 - stress detection:** Sentinel-2 gives no reliable early-warning signal
+  here. NDRE detection is not statistically distinguishable from the control
+  false-alarm rate (Fisher p ~ 0.25). NDMI detects damage significantly (p ~ 1e-4)
+  but with no lead time - it fires around or after the salvage declaration, which
+  itself lags visible mortality. This matches the published critical review.
+- **Together:** Module C is an honest treatment of a hard problem - a driver
+  ranking that a naive index matches, and an early-detection result that fails a
+  significance test. The value is the method and the honesty, not a headline
+  number.
 
 ---
 
 ## 5. Caveats and open items
 
-- Beetle / insect label leans on declaration coding; 1602-only sensitivity check
-  pending.
+- C1: 1602-only sensitivity check done - ranking is stable (see C1c).
 - C1: only 170 cases in the 2019-2024 window - adequate for 5 predictors, not large.
+- C1: model has no out-of-sample skill beyond a naive index; coefficients are a
+  ranking, not a validated predictive model.
+- C1: MS-NFI 2023 predictors postdate part of the 2019-2024 target; for the worst-
+  hit areas the 500 m buffer spruce mean may be pulled down by the salvage. Not
+  re-tested with an earlier MS-NFI vintage.
+- C1: cases and background are not matched on region / epoch (SDM limitation).
 - C1: `age` point estimate has an unexpected sign at 500 m scale (not significant).
 - C1: background = available spruce forest, not confirmed undamaged (SDM assumption).
 - C1: MS-NFI 2023 predictors vs a 2019-2024 target; buffered mean limits the mismatch.

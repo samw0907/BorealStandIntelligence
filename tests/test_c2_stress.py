@@ -55,10 +55,16 @@ def test_c2_detect_flags_damaged_before_salvage_and_spares_controls():
     assert (dmg.loc[dmg["detected"], "days_early"] > 0).all()
 
 
-def test_c2_summary_shape():
+def test_c2_summary_shape_and_small_n_guard():
     idx, sel = _dataset()
     s = c2_summary(c2_detect(idx, sel, index="ndre"))
     assert s["n_damaged_evaluated"] == 6
     assert 0.0 <= s["false_alarm_rate_control"] <= 1.0
     assert s["days_early"]["share_before_declaration"] == 1.0
-    assert set(s["days_early"]) == {"n", "median", "q25", "q75", "share_before_declaration"}
+    assert s["fisher_p_detection_gt_falsealarm"] is not None
+    # n = 6 detected < 12 -> no quantiles, a note instead
+    assert "median" not in s["days_early"]
+    assert "note" in s["days_early"]
+    # with the threshold lowered, quantiles appear
+    s2 = c2_summary(c2_detect(idx, sel, index="ndre"), min_n_for_quantiles=3)
+    assert {"median", "q25", "q75"} <= set(s2["days_early"])

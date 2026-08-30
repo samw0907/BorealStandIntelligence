@@ -746,6 +746,49 @@ def run_module_a(
                              out_dir / "figures" / "msnfi_agreement.png")
     module_a_error_by_volclass(out_dir / "tables" / "a4b_vol_total_by_volclass.csv",
                                out_dir / "figures" / "error_by_volclass.png")
+
+    # accuracy stratified by ALS coverage (stand cell count) - small stands are noisier
+    fp = res_s2["predictions"].merge(frame[["standid", "n_cells"]], on="standid")
+    fp["cells_bin"] = pd.cut(fp["n_cells"], [0, 15, 30, 60, 1e9],
+                             labels=["<15", "15-30", "30-60", ">60"])
+    strat = []
+    for b, g in fp.groupby("cells_bin", observed=True):
+        e = (g["aba__vol_total"] - g["obs__vol_total"]).to_numpy()
+        strat.append({"cells_bin": str(b), "n": int(len(g)),
+                      "rmse_vol_total": round(float(np.sqrt(np.mean(e ** 2))), 1),
+                      "bias": round(float(e.mean()), 1)})
+    pd.DataFrame(strat).to_csv(out_dir / "tables" / "accuracy_by_als_coverage.csv",
+                               index=False)
+    report["accuracy_by_als_coverage"] = strat
+
+    # residual spatial structure: does autocorrelation decay within the CV block size?
+    cent = frame.set_index("standid").geometry.centroid
+    rr = (res_s2["predictions"].set_index("standid")["aba__vol_total"]
+          - res_s2["predictions"].set_index("standid")["obs__vol_total"]).dropna()
+    smp = rr.sample(min(1500, len(rr)), random_state=0)
+    xy = np.c_[cent.loc[smp.index].x.to_numpy(), cent.loc[smp.index].y.to_numpy()]
+    rv = smp.to_numpy()
+    dmat = np.sqrt(((xy[:, None] - xy[None, :]) ** 2).sum(-1))
+    gmat = 0.5 * (rv[:, None] - rv[None, :]) ** 2
+    iu = np.triu_indices_from(dmat, k=1)
+    dd, gg = dmat[iu], gmat[iu]
+    sill = float(np.var(rv))
+    bins = []
+    rng_m = None
+    for lo in range(0, 8000, 500):
+        sel_b = (dd >= lo) & (dd < lo + 500)
+        sv = float(np.mean(gg[sel_b])) if sel_b.any() else float("nan")
+        bins.append({"dist_m": lo + 250, "semivariance": round(sv, 1) if sv == sv else None})
+        if rng_m is None and sv == sv and sv >= 0.95 * sill:
+            rng_m = lo + 250
+    report["residual_semivariogram"] = {
+        "sill_variance": round(sill, 1), "approx_range_m": rng_m,
+        "cv_block_size_m": int(cfg["module_a_stand_estimation"]["cv"]["block_size_km"]) * 1000,
+        "note": "approx_range_m is where semivariance first reaches 95 % of the "
+                "sill; if it exceeds the CV block size the blocked CV is still "
+                "optimistic",
+        "bins": bins,
+    }
     return report
 
 
