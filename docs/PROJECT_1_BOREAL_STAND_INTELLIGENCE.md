@@ -3,6 +3,19 @@ Modules A + B + C. Created 2026-08-26, revised same day.
 Depends on: METSA_GIS_RESEARCH_FINDINGS.md
 Working repo name: `/BorealStandIntelligence`
 
+**Status: complete (2026-08-30).** This file is the original plan and is kept as
+a historical record; several things changed during the build (see "plans are
+provisional"). For what was actually built and found, use:
+`BorealStandIntelligence/README.md` (the write-up), `docs/MODULE_A_NOTES.md`,
+`docs/MODULE_B_NOTES.md`, `docs/MODULE_C_NOTES.md` (full reasoning + results per
+module), and `docs/EXTERNAL_REVIEW.md` (a self-critical appraisal and the fix
+pass applied after it). Notable deviations from this plan: Module C1 became a
+point-based presence/background logistic regression rather than a stand-level
+model (post-salvage stand reclassification made the stand-level design
+unworkable - see MODULE_C_NOTES §2.2); Module C2 was restricted to a damage
+hotspot rather than the full AOI; a climatic water-balance term was dropped from
+C1 (the AOI is too small for it to carry spatial signal).
+
 ---
 
 ## One-line framing

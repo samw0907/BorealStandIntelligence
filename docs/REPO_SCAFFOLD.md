@@ -354,6 +354,9 @@ matplotlib, no emojis, attribution in the caption, legend classes named in Engli
 ## Acceptance criteria
 
 A module is done when every item below exists in its output directory.
+**P1 modules B, A and C are all complete (2026-08-30)** against the criteria
+below; see `docs/MODULE_A/B/C_NOTES.md` for the results and
+`docs/EXTERNAL_REVIEW.md` for the post-completion critical pass.
 
 ### P1 module B — harvest detection
 - Precision, recall and F1 by felling type (regeneration, thinning, salvage)

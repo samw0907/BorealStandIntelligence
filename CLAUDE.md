@@ -70,13 +70,19 @@ and `docker-compose.yml` give a reproducible run; CI runs flake8, config
 validation and pytest.
 
 ## Status
-Scaffolding complete. **TASK 00 discovery complete (2026-08-29)** —
-`docs/DATA_SOURCES.md` verified against the live services, `docs/TASK_00_FINDINGS.md`
-records the deviations and open decisions. `config/pipeline.yaml` needed no changes.
-Next: **Module B** (harvest detection). Then A, then C.
+**Complete (2026-08-30).** Modules B, A and C all built, validated, and written
+up in `README.md`. Per-module reasoning and results are in
+`docs/MODULE_A_NOTES.md`, `docs/MODULE_B_NOTES.md`, `docs/MODULE_C_NOTES.md`.
+`docs/EXTERNAL_REVIEW.md` is a self-critical appraisal with a recorded fix pass
+(a Module A CV spatial-autocorrelation check, Module C1 collinearity and label-
+sensitivity checks, and a corrected Module C2 result after a significance test
+showed the original NDRE lead-time claim was a small-sample artefact). Remaining
+open items: wire `run_module_a` / `run_module_b` / `run_module_c1` /
+`run_module_c2` into `src/run.py` (currently invoked directly); the
+`docs/SIMPLIFICATION_BACKLOG.md` learnability pass, once Project 1 as a whole is
+understood well enough to explain in an interview.
 
-TASK 00 decisions (TASK_00_FINDINGS.md): D1 resolved — Module A uses the 2020+
-open 0.5 p ALS (2019–2023 flights cover the AOI) via the NLS OGC API; Sam
-registers a free key at Module A start (`.env`, gitignored, never committed).
-D2 (Project 2 deadwood) deferred. The SE AOI is mixed pine–spruce (spruce ~28%),
-not spruce-dominant; no method impact.
+TASK 00 decisions (TASK_00_FINDINGS.md): D1 resolved — Module A used the 2020+
+open 0.5 p ALS (2019–2023 flights cover the AOI) via the NLS OGC API. D2
+(Project 2 deadwood) deferred to Project 2 Module E. The SE AOI is mixed
+pine–spruce (spruce ~28%), not spruce-dominant; no method impact.
