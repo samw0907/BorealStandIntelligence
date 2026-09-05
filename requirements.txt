@@ -15,6 +15,11 @@ matplotlib
 requests
 pyyaml
 rasterstats
+python-dotenv
+
+# Sentinel-2 access (Modules A, B, C2)
+pystac-client
+odc-stac
 
 # Terrain and hydrology (used more heavily in the companion repo; kept here for
 # the shared data access layer and any DEM handling in Module A)

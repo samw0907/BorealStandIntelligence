@@ -64,10 +64,14 @@ Fixed. See config/aoi_southeast.yaml.
 
 ## Local setup
 Shared `.venv` at the working directory root. From this repo:
-`pip install -r requirements.txt && pip install -e . --no-deps`. The editable
-install makes `fi_forest_data` and `src` importable from anywhere. `Dockerfile`
-and `docker-compose.yml` give a reproducible run; CI runs flake8, config
-validation and pytest.
+`pip install -r requirements.txt`. Note: `regenerative-harvest-planning` uses
+the same top-level package names (`fi_forest_data`, `src`), so an editable
+install (`pip install -e .`) of both repos into the shared venv at once would
+have the second silently override the first's import path — day to day, run
+scripts with the working directory set to this repo's root instead, which is
+how this repo has actually been developed and tested. `Dockerfile` and
+`docker-compose.yml` give a reproducible run (each container has only one
+repo's code, unaffected); CI runs flake8, config validation and pytest.
 
 ## Status
 **Complete (2026-08-30).** Modules B, A and C all built, validated, and written
